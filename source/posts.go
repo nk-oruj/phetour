@@ -40,6 +40,10 @@ func GetSource(keylock *Keylock, taxonomy *Taxonomy) (*Source, error) {
 			return nil
 		}
 
+		if info.Name()[0] == '~' {
+			return nil
+		}
+
 		name := info.Name()
 
 		post, err := GetPostDocument(path, name, keylock, taxonomy)
