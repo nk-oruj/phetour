@@ -1,0 +1,11 @@
+/input/posts/*
+/input/statics/*
+/input/styles/*
+/output/*
+
+!/input/posts/
+!/input/statics/
+!/input/styles/
+!/output/
+
+lock.xml
