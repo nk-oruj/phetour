@@ -285,6 +285,8 @@ func buildTag(tag Tag, outputPath string, source *Source) error {
 	bold := body.CreateElement("bold")
 	bold.CreateText(tag.Label)
 
+	slices.SortFunc(tag.Mentions, func(a, b int) int { return -cmp.Compare(a, b) })
+
 	// Then: Add link tags for each document mentioning the tag
 	for _, mentionID := range tag.Mentions {
 		// Find the post for this mention
