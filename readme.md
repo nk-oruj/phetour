@@ -189,7 +189,7 @@ A good book makes an afternoon feel like a week.</text>
 
 ---
 
-## Available Stylesheets
+## Available stylesheets
 
 The repository ships two stylesheets in `input/styles/` that show how the XML schema maps to real output formats. They are meant as working references — use them as-is, strip them down, or write your own from scratch alongside them.
 
