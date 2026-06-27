@@ -189,6 +189,56 @@ A good book makes an afternoon feel like a week.</text>
 
 ---
 
+## Available Stylesheets
+
+The repository ships two stylesheets in `input/styles/` that show how the XML schema maps to real output formats. They are meant as working references — use them as-is, strip them down, or write your own from scratch alongside them.
+
+### `html.xsl` → `output/html/`
+
+Produces HTML. Element mapping:
+
+| XML element | HTML output |
+|---|---|
+| `<bold>` | `<strong><p>` |
+| `<text>` | `<p>` |
+| `<link href="…">` | `<a href="…">` |
+| `<item>` | `<li>` inside a `<ul>`, consecutive items grouped into one list |
+| `<code>` (plain) | `<pre><code>` |
+| `<code>` containing `<table>` | `<table>` with `<tr>` / `<td>` and optional inline `style` attributes |
+
+The page `<title>` is pulled from `meta/title/@value`.
+
+### `gmi.xsl` → `output/gmi/`
+
+Produces [Gemtext](https://geminiprotocol.net/docs/gemtext.gmi), the native document format for the Gemini protocol. Element mapping:
+
+| XML element | Gemtext output |
+|---|---|
+| `<bold>` | `### heading` |
+| `<text>` | plain paragraph line |
+| `<link href="…">` | `=> url label` |
+| `<item>` | `* item`, consecutive items grouped under one blank-line separator |
+| `<code>` (plain) | ` ``` … ``` ` preformatted block |
+| `<code>` containing `<table>` | ASCII box table (see below) |
+
+#### ASCII table rendering in Gemtext
+
+Gemtext has no native table syntax. When a `<code>` block contains a pandoc-generated `<table>`, `gmi.xsl` renders it as a fixed-width ASCII grid. Column widths are computed by measuring the longest cell in each column across all rows, then every cell is padded to that width:
+
+```
++-----+-----+-----+
+| _1_ | _2_ | _3_ |
++-----+-----+-----+
+| a   | foo | bar |
++-----+-----+-----+
+| b   | baz | qux |
++-----+-----+-----+
+```
+
+The border line (`+---+`) is redrawn after every row. The calculation is done entirely in XSLT 1.0 using recursive named templates (`draw-border`, `render-row`, `get-max-width`) — no extensions beyond EXSLT `exsl:common` are required.
+
+---
+
 ## Identity and lock file
 
 Every post and tag is assigned an ID by `lock.xml` the first time it is seen. These IDs are hex-formatted (`0x0001`, `0x0002`, …) and used as directory names in the output, making URLs stable regardless of filename changes.
