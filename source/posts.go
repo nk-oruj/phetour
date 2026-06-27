@@ -26,89 +26,49 @@ type Source struct {
 	Posts []Post
 }
 
-func GetSource(keylock *Keylock, taxonomy *Taxonomy) (*Source, error) {
-
+func LoadSource(keylock *Keylock, taxonomy *Taxonomy) (*Source, error) {
 	source := &Source{Posts: []Post{}}
 
 	err := filepath.Walk(postsPath, func(path string, info fs.FileInfo, err error) error {
-
 		if err != nil {
 			return err
 		}
-
-		if info.IsDir() {
+		if info.IsDir() || info.Name()[0] == '~' {
 			return nil
 		}
 
-		if info.Name()[0] == '~' {
-			return nil
-		}
-
-		name := info.Name()
-
-		post, err := GetPostDocument(path, name, keylock, taxonomy)
+		post, err := loadPost(path, info.Name(), keylock, taxonomy)
 		if err != nil {
-			return fmt.Errorf("failed reading post document %s: %w", path, err)
+			return fmt.Errorf("failed loading post %s: %w", path, err)
 		}
 
 		source.Posts = append(source.Posts, post)
-
 		return nil
-
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("failed reading post document folder: %w", err)
+		return nil, fmt.Errorf("failed reading posts folder: %w", err)
 	}
 
 	return source, nil
-
 }
 
-func GetPostDocument(path string, name string, keylock *Keylock, taxonomy *Taxonomy) (Post, error) {
-
-	// Read file content
+func loadPost(path string, name string, keylock *Keylock, taxonomy *Taxonomy) (Post, error) {
 	contentBytes, err := os.ReadFile(path)
 	if err != nil {
-		return Post{}, fmt.Errorf("failed reading post document %s: %w", path, err)
+		return Post{}, fmt.Errorf("failed reading file: %w", err)
 	}
 
-	contentStr := string(contentBytes)
-	document := etree.NewDocument()
-
-	// Try to parse as custom syntax first (check if first line looks like metadata)
-	firstLine := strings.TrimSpace(strings.Split(contentStr, "\n")[0])
-	if strings.HasPrefix(firstLine, "title:") {
-		// Custom syntax format
-		document, err = ParseCustomSyntax(contentStr, path)
-		if err != nil {
-			return Post{}, fmt.Errorf("failed parsing custom syntax document %s: %w", path, err)
-		}
-	} else {
-		// Try to parse as XML - if it fails, it might be the old format with loose content
-		err = document.ReadFromString(contentStr)
-		if err != nil {
-			// Old format: has <meta>...</meta> followed by loose content
-			// Wrap it in a document structure to make it valid XML
-			metaEnd := strings.Index(contentStr, "</meta>")
-			if metaEnd != -1 {
-				// Create valid XML by wrapping in <document><body>
-				wrapped := "<document>" + contentStr[:metaEnd+7] + "<body>" + contentStr[metaEnd+7:] + "</body></document>"
-				err = document.ReadFromString(wrapped)
-				if err != nil {
-					return Post{}, fmt.Errorf("failed parsing post document %s (even after wrapping): %w", path, err)
-				}
-			} else {
-				return Post{}, fmt.Errorf("failed parsing post document %s: %w", path, err)
-			}
-		}
+	document, err := readPostDocument(string(contentBytes), path)
+	if err != nil {
+		return Post{}, fmt.Errorf("failed parsing document: %w", err)
 	}
 
 	key := keylock.AssureKey("POST:" + name)
 
-	title, tags, err := ProcessPostMeta(document, key, taxonomy)
+	title, tags, err := extractPostMeta(document, key, taxonomy)
 	if err != nil {
-		return Post{}, fmt.Errorf("failed reading post document meta: %w", err)
+		return Post{}, fmt.Errorf("failed reading meta: %w", err)
 	}
 
 	return Post{
@@ -118,47 +78,54 @@ func GetPostDocument(path string, name string, keylock *Keylock, taxonomy *Taxon
 		Content: document,
 		Tags:    tags,
 	}, nil
-
 }
 
-func ProcessPostMeta(content *etree.Document, key int, taxonomy *Taxonomy) (string, []int, error) {
-
-	// Check if meta is inside document wrapper or at root
-	var meta *etree.Element
-	docRoot := content.Root()
-	if docRoot != nil && docRoot.Tag == "document" {
-		meta = docRoot.SelectElement("meta")
-	} else {
-		meta = content.SelectElement("meta")
-	}
-	if meta == nil {
-		return "", nil, fmt.Errorf("no meta tag found")
-	}
-
-	title := meta.SelectElement("title")
-	if title == nil {
-		return "", nil, fmt.Errorf("no title tag found")
-	}
-
-	titleValue := title.SelectAttrValue("value", "")
-	if titleValue == "" {
-		return "", nil, fmt.Errorf("no value in title tag found")
-	}
-
-	labelKeys := []int{}
-
-	tags := meta.SelectElements("tag")
-
-	for _, tag := range tags {
-		tagLabel := tag.SelectAttrValue("label", "")
-		if tagLabel == "" {
-			return "", nil, fmt.Errorf("no label found in a tag")
+func readPostDocument(content string, path string) (*etree.Document, error) {
+	var firstLine string
+	for _, line := range strings.Split(content, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			firstLine = trimmed
+			break
 		}
+	}
 
-		labelKey := taxonomy.AssureLabelFromDocument(tagLabel, key)
-		labelKeys = append(labelKeys, labelKey)
+	if strings.HasPrefix(firstLine, "#") {
+		return parseDocument(content, path)
+	}
+
+	doc := etree.NewDocument()
+	if err := doc.ReadFromString(content); err != nil {
+		return nil, fmt.Errorf("failed to parse as XML: %w", err)
+	}
+	return doc, nil
+}
+
+func extractPostMeta(content *etree.Document, key int, taxonomy *Taxonomy) (string, []int, error) {
+	meta := content.Root().SelectElement("meta")
+	if meta == nil {
+		return "", nil, fmt.Errorf("no meta element found")
+	}
+
+	titleElem := meta.SelectElement("title")
+	if titleElem == nil {
+		return "", nil, fmt.Errorf("no title element found")
+	}
+
+	titleValue := titleElem.SelectAttrValue("value", "")
+	if titleValue == "" {
+		return "", nil, fmt.Errorf("title value is empty")
+	}
+
+	var labelKeys []int
+	for _, tagElem := range meta.SelectElements("tag") {
+		tagLabel := tagElem.SelectAttrValue("label", "")
+		if tagLabel == "" {
+			return "", nil, fmt.Errorf("tag element with empty label found")
+		}
+		t := taxonomy.AssureTag(tagLabel)
+		t.AssureMention(key)
+		labelKeys = append(labelKeys, t.Key)
 	}
 
 	return titleValue, labelKeys, nil
-
 }

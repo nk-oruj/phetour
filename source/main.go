@@ -2,14 +2,14 @@ package main
 
 func main() {
 
-	keylock, err := GetKeylock()
+	keylock, err := LoadKeylock()
 	if err != nil {
 		panic(err)
 	}
 
-	taxonomy := GetTaxonomy(keylock)
+	taxonomy := NewTaxonomy(keylock)
 
-	source, err := GetSource(keylock, taxonomy)
+	source, err := LoadSource(keylock, taxonomy)
 	if err != nil {
 		panic(err)
 	}

@@ -11,33 +11,30 @@ type Taxonomy struct {
 	Tags    []Tag
 }
 
-func GetTaxonomy(keylock *Keylock) *Taxonomy {
+func NewTaxonomy(keylock *Keylock) *Taxonomy {
 	return &Taxonomy{Keylock: keylock, Tags: []Tag{}}
 }
 
-func (taxonomy *Taxonomy) AssureLabelFromDocument(label string, document int) int {
-
-	for i, tag := range taxonomy.Tags {
-		if tag.Label == label {
-			for _, mention := range tag.Mentions {
-				if mention == document {
-					return tag.Key
-				}
-			}
-
-			taxonomy.Tags[i].Mentions = append(tag.Mentions, document)
-			return tag.Key
+func (taxonomy *Taxonomy) AssureTag(label string) *Tag {
+	for i := range taxonomy.Tags {
+		if taxonomy.Tags[i].Label == label {
+			return &taxonomy.Tags[i]
 		}
 	}
-
 	key := taxonomy.Keylock.AssureKey("TAG:" + label)
-
 	taxonomy.Tags = append(taxonomy.Tags, Tag{
 		Label:    label,
 		Key:      key,
-		Mentions: []int{document},
+		Mentions: []int{},
 	})
+	return &taxonomy.Tags[len(taxonomy.Tags)-1]
+}
 
-	return key
-
+func (tag *Tag) AssureMention(document int) {
+	for _, mention := range tag.Mentions {
+		if mention == document {
+			return
+		}
+	}
+	tag.Mentions = append(tag.Mentions, document)
 }
