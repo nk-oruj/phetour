@@ -160,7 +160,7 @@ This produces:
 2. Run `make build`.
 3. Find the output in `output/myformat/`.
 
-A common approach is to write one stylesheet per target format. For example, `html.xsl` could render each `<bold>` as `<strong>`, each `<item>` as an `<li>` inside a grouped `<ul>`, each `<link>` as an `<a href>`, and each `<text>` as a `<p>`. A `gmi.xsl` for [Gemini](https://geminiprotocol.net/) would instead emit plain `###`, `*`, `=>`, and paragraph lines. The same XML source drives both without any changes to the posts.
+The approach is to write one stylesheet per target format.
 
 The XML document every stylesheet receives for the [example post above](#example):
 
