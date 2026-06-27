@@ -227,7 +227,7 @@ Gemtext has no native table syntax. When a `<code>` block contains a pandoc-gene
 
 ```
 +-----+-----+-----+
-| _1_ | _2_ | _3_ |
+|  1  |  2  |  3  |
 +-----+-----+-----+
 | a   | foo | bar |
 +-----+-----+-----+
