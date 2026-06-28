@@ -1,4 +1,4 @@
-# Phetour
+# phetour (փետուր)
 
 A minimal static-site generator written in Go. It reads plain-text post files written in a lightweight custom syntax, compiles them into an intermediate XML document tree, and transforms that tree into any number of output formats (HTML, Gemtext, or anything else) using XSLT stylesheets.
 
