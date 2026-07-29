@@ -127,24 +127,14 @@ func buildTag(tag Tag, outputPath string, source *Source) error {
 	return nil
 }
 
-func buildHomeCatalog(source *Source, taxonomy *Taxonomy, outputPath string) error {
+func buildHomeCatalog(taxonomy *Taxonomy, outputPath string) error {
 	doc := etree.NewDocument()
 	docRoot := doc.CreateElement("document")
 	docRoot.CreateElement("meta").CreateElement("title").CreateAttr("value", "փետուր")
 
 	body := docRoot.CreateElement("body")
 
-	slices.SortFunc(source.Posts, func(a, b Post) int { return -cmp.Compare(a.Key, b.Key) })
-
-	for _, post := range source.Posts {
-		link := body.CreateElement("link")
-		link.CreateAttr("href", "/"+KeyIDToHex(post.Key)+"/")
-		link.CreateText(fmt.Sprintf("%s - %s", KeyIDToHex(post.Key), post.Title))
-	}
-
-	body.CreateElement("text").CreateText("")
-
-	slices.SortFunc(taxonomy.Tags, func(a, b Tag) int { return -cmp.Compare(a.Key, b.Key) })
+	slices.SortFunc(taxonomy.Tags, func(a, b Tag) int { return cmp.Compare(a.Label, b.Label) })
 
 	for _, tag := range taxonomy.Tags {
 		link := body.CreateElement("link")

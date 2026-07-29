@@ -38,7 +38,7 @@ func Build(source *Source, taxonomy *Taxonomy) error {
 		}
 	}
 
-	if err := buildHomeCatalog(source, taxonomy, xmlOutputPath); err != nil {
+	if err := buildHomeCatalog(taxonomy, xmlOutputPath); err != nil {
 		return fmt.Errorf("failed to build home catalog: %w", err)
 	}
 
