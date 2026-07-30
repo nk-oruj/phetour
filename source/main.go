@@ -1,27 +1,13 @@
 package main
 
+import (
+	"fmt"
+	"os"
+)
+
 func main() {
-
-	keylock, err := LoadKeylock()
-	if err != nil {
-		panic(err)
+	if err := runCommand(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, "phetour:", err)
+		os.Exit(1)
 	}
-
-	taxonomy := NewTaxonomy(keylock)
-
-	source, err := LoadSource(keylock, taxonomy)
-	if err != nil {
-		panic(err)
-	}
-
-	err = Build(source, taxonomy)
-	if err != nil {
-		panic(err)
-	}
-
-	err = keylock.Save()
-	if err != nil {
-		panic(err)
-	}
-
 }

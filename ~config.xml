@@ -1,0 +1,15 @@
+<config>
+    <site
+        title="My Site"
+        url="https://example.com/"
+        description="Recent publications."/>
+    
+    <deployment ssh-alias="myServer">
+        <output name="html" remote="/var/html"/>
+        <output name="gmi" remote="/var/gmi"/>
+    </deployment>
+    
+    <rss>
+        <publish source="html" output="html" path="rss.xml"/>
+    </rss>
+</config>

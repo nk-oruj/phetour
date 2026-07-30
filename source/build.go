@@ -6,6 +6,35 @@ import (
 	"path/filepath"
 )
 
+func runBuild(force bool) error {
+	fmt.Println("Build: fully regenerate output/")
+	proceed, err := confirmPlan(force)
+	if err != nil {
+		return err
+	}
+	if !proceed {
+		fmt.Println("Cancelled.")
+		return nil
+	}
+
+	keylock, err := LoadKeylock()
+	if err != nil {
+		return err
+	}
+	taxonomy := NewTaxonomy(keylock)
+	source, err := LoadSource(keylock, taxonomy)
+	if err != nil {
+		return err
+	}
+	if err := Build(source, taxonomy); err != nil {
+		return err
+	}
+	if err := keylock.Save(); err != nil {
+		return fmt.Errorf("failed to save lock file: %w", err)
+	}
+	return nil
+}
+
 func Build(source *Source, taxonomy *Taxonomy) error {
 	const xmlOutputPath = "./output/xml"
 	const staticsInputPath = "./input/statics"

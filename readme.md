@@ -35,29 +35,77 @@ input/   →   Parse   →   Render   →   XSL Transform   →   output/
 
 ---
 
-## Setup
-
-### Prerequisites
+## Prerequisites
 
 | Tool | Purpose |
 |---|---|
 | [Go](https://go.dev/) 1.23+ | build the generator |
 | [xsltproc](http://xmlsoft.org/XSLT/) | apply stylesheets (Linux/macOS) |
 | [msxsl.exe](https://www.microsoft.com/en-us/download/details.aspx?id=21714) | apply stylesheets (Windows) |
+| [rsync](https://rsync.samba.org/) | synchronize deployed output folders |
 | [pandoc](https://pandoc.org/) | render Markdown tables inside ` ``` ` blocks (optional) |
 
+---
 
-### Build
+## Build
 
 ```sh
 # generate the site
 make build
 
 # or directly
-go run ./source
+go run ./source build
 ```
 
 Output lands in `output/`.
+
+Phetour intentionally rebuilds the complete local site. For a small static site, this keeps building simple and lets `rsync` avoid unnecessary uploads by comparing generated file contents.
+
+---
+
+## Deployment
+
+Copy the tracked `~config.xml` template to `config.xml`, then set your existing SSH alias and remote destination for each output directory you want to publish:
+
+```sh
+cp ~config.xml config.xml
+```
+
+```xml
+<config>
+    <site
+        title="My Site"
+        url="https://example.com/"
+        description="Recent publications."/>
+
+    <deployment ssh-alias="myServer">
+        <output name="html" remote="/var/html"/>
+        <output name="gmi" remote="/var/gmi"/>
+    </deployment>
+
+    <rss>
+        <publish source="html" output="html" path="rss.xml"/>
+    </rss>
+</config>
+```
+
+`config.xml` is ignored by Git; `~config.xml` remains the shareable template. Phetour uses `rsync` over your SSH alias: it previews the exact upload and deletion plan, asks for confirmation, then makes the configured remote directory match the corresponding local output folder.
+
+```sh
+# upload only files whose contents differ, and delete stale remote files
+go run ./source deploy-changes
+
+# force every local file to upload, and delete stale remote files
+go run ./source deploy-all
+```
+
+Use `--force` to skip the confirmation prompt in scripts. `deploy-changes` uses checksums and does not synchronize timestamps or permissions, so it does not re-upload a file merely because a full local build gave it a new timestamp or WSL reports different file modes. Rsync creates new files as the remote SSH user using the server's normal umask, leaves existing ownership and modes untouched, and excludes symlinks, devices, and special files.
+
+### RSS publication
+
+RSS is optional: omit the `<rss>` element to disable it. Each `<publish>` selects the deployed output whose page changes create feed events (`source`), the output folder where the feed is written (`output`), and its relative file path (`path`).
+
+On deployment, Phetour reads the existing remote feed and appends RSS items for new post pages, new tag pages, and changed tag pages. A changed tag page publishes an update even when the change was caused by deleting a post. Deleted post or tag pages do not create RSS items. Existing RSS GUIDs prevent duplicate items on repeated deployments.
 
 ---
 

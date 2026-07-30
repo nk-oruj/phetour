@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -79,13 +80,17 @@ func transformWithXsltproc(xmlPath, dstPath, xslPath string) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		errStr := strings.ToLower(string(output))
-		if strings.Contains(errStr, "not found") ||
+		if errors.Is(err, exec.ErrNotFound) ||
+			strings.Contains(errStr, "not found") ||
 			strings.Contains(errStr, "not recognized") ||
 			strings.Contains(errStr, "command not found") {
 			cmd = exec.Command("msxsl.exe", xmlPath, xslPath, "-o", dstPath)
 			output, err = cmd.CombinedOutput()
 			if err != nil {
-				return fmt.Errorf("XSLT transformation failed (xsltproc/msxsl unavailable): %s", string(output))
+				if errors.Is(err, exec.ErrNotFound) {
+					return fmt.Errorf("XSLT transformation failed: neither xsltproc nor msxsl.exe is available")
+				}
+				return fmt.Errorf("XSLT transformation failed with msxsl.exe: %s", string(output))
 			}
 		} else {
 			return fmt.Errorf("XSLT transformation failed: %s", string(output))
