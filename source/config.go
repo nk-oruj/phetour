@@ -35,9 +35,10 @@ type SiteConfig struct {
 }
 
 type RSSPublication struct {
-	Source string
-	Output string
-	Path   string
+	Source     string
+	Output     string
+	Path       string
+	Stylesheet string
 }
 
 func loadConfig() (Config, error) {
@@ -84,17 +85,27 @@ func loadConfig() (Config, error) {
 	}
 
 	outputs := outputNames(config.Deployment)
+	publicationPaths := map[string]bool{}
 	for _, publication := range rss.SelectElements("publish") {
 		source := publication.SelectAttrValue("source", "")
 		output := publication.SelectAttrValue("output", "")
 		feedPath := publication.SelectAttrValue("path", "")
+		stylesheet := publication.SelectAttrValue("stylesheet", "")
 		if !outputs[source] || !outputs[output] {
 			return Config{}, fmt.Errorf("RSS publication source and output must name configured deployment outputs")
 		}
 		if !isSafeRelativePath(feedPath) {
 			return Config{}, fmt.Errorf("RSS publication path %q must be a relative path without ..", feedPath)
 		}
-		config.RSS = append(config.RSS, RSSPublication{Source: source, Output: output, Path: feedPath})
+		if !isSafeRelativePath(stylesheet) || filepath.Ext(stylesheet) != ".xsl" {
+			return Config{}, fmt.Errorf("RSS publication stylesheet %q must be a relative .xsl path without ..", stylesheet)
+		}
+		publicationKey := output + ":" + feedPath
+		if publicationPaths[publicationKey] {
+			return Config{}, fmt.Errorf("RSS publication output %q path %q is configured more than once", output, feedPath)
+		}
+		publicationPaths[publicationKey] = true
+		config.RSS = append(config.RSS, RSSPublication{Source: source, Output: output, Path: feedPath, Stylesheet: stylesheet})
 	}
 	if len(config.RSS) == 0 {
 		return Config{}, fmt.Errorf("rss must contain at least one publish element")

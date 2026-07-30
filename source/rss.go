@@ -1,15 +1,12 @@
 package main
 
 import (
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -21,108 +18,7 @@ type RSSItem struct {
 	Link        string
 	GUID        string
 	Description string
-}
-
-func buildRSSEvents(changes string, sourceOutput string, site SiteConfig, keylock *Keylock) ([]RSSItem, error) {
-	keys := map[int]string{}
-	for _, key := range keylock.Keys {
-		keys[key.ID] = key.Value
-	}
-
-	events := []RSSItem{}
-	for _, line := range strings.Split(changes, "\n") {
-		parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
-		if len(parts) != 2 || strings.HasPrefix(parts[0], "*deleting") {
-			continue
-		}
-
-		marker := parts[0]
-		relativePath := strings.TrimSpace(parts[1])
-		key, valid := keyForOutputPage(relativePath, sourceOutput)
-		if !valid {
-			continue
-		}
-
-		value, known := keys[key]
-		if !known {
-			continue
-		}
-		title, err := outputDocumentTitle(key)
-		if err != nil {
-			return nil, err
-		}
-		link := strings.TrimRight(site.URL, "/") + "/" + KeyIDToHex(key) + "/"
-		if strings.HasPrefix(value, "POST:") && strings.Contains(marker, "+++++++++") {
-			events = append(events, RSSItem{
-				Title:       title,
-				Link:        link,
-				GUID:        "post:" + KeyIDToHex(key),
-				Description: "A new post was published.",
-			})
-		}
-		if strings.HasPrefix(value, "TAG:") {
-			hash, err := outputDocumentHash(key)
-			if err != nil {
-				return nil, err
-			}
-			eventTitle := "Updated tag: " + title
-			description := "The tag index was updated."
-			if strings.Contains(marker, "+++++++++") {
-				eventTitle = "New tag: " + title
-				description = "A new tag was published."
-			}
-			events = append(events, RSSItem{
-				Title:       eventTitle,
-				Link:        link,
-				GUID:        "tag:" + KeyIDToHex(key) + ":" + hash,
-				Description: description,
-			})
-		}
-	}
-	sort.Slice(events, func(i, j int) bool { return events[i].GUID < events[j].GUID })
-	return events, nil
-}
-
-func keyForOutputPage(relativePath string, outputName string) (int, bool) {
-	if !strings.HasSuffix(relativePath, "/index."+outputName) {
-		return 0, false
-	}
-	directory := strings.TrimSuffix(relativePath, "/index."+outputName)
-	if strings.Contains(directory, "/") || !strings.HasPrefix(directory, "0x") {
-		return 0, false
-	}
-	key, err := strconv.ParseInt(strings.TrimPrefix(directory, "0x"), 16, 0)
-	if err != nil {
-		return 0, false
-	}
-	return int(key), true
-}
-
-func outputDocumentTitle(key int) (string, error) {
-	document := etree.NewDocument()
-	filePath := filepath.Join("output", "xml", KeyIDToHex(key), "index.xml")
-	if err := document.ReadFromFile(filePath); err != nil {
-		return "", fmt.Errorf("failed to read generated document %s: %w", KeyIDToHex(key), err)
-	}
-	meta := document.Root().SelectElement("meta")
-	if meta == nil {
-		return "", fmt.Errorf("generated document %s has no meta element", KeyIDToHex(key))
-	}
-	title := meta.SelectElement("title")
-	if title == nil {
-		return "", fmt.Errorf("generated document %s has no title", KeyIDToHex(key))
-	}
-	return title.SelectAttrValue("value", ""), nil
-}
-
-func outputDocumentHash(key int) (string, error) {
-	filePath := filepath.Join("output", "xml", KeyIDToHex(key), "index.xml")
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read generated document %s: %w", KeyIDToHex(key), err)
-	}
-	hash := sha256.Sum256(content)
-	return fmt.Sprintf("%x", hash[:]), nil
+	Categories  []string
 }
 
 func writeRSSPublication(publication RSSPublication, site SiteConfig, deployment DeploymentConfig, alias string, events []RSSItem) ([]RSSItem, error) {
@@ -169,7 +65,7 @@ func readRemoteFile(alias string, remotePath string) ([]byte, bool, error) {
 	if errors.As(err, &exitError) && exitError.ExitCode() == 3 {
 		return nil, false, nil
 	}
-	return nil, false, fmt.Errorf("failed to read remote RSS feed: %s", strings.TrimSpace(string(output)))
+	return nil, false, fmt.Errorf("failed to read remote file %s: %s", remotePath, strings.TrimSpace(string(output)))
 }
 
 func shellQuote(value string) string {
@@ -220,7 +116,10 @@ func appendRSSItems(feed *etree.Document, events []RSSItem) []RSSItem {
 		guid.CreateAttr("isPermaLink", "false")
 		guid.CreateText(event.GUID)
 		item.CreateElement("pubDate").CreateText(time.Now().UTC().Format(time.RFC1123Z))
-		item.CreateElement("description").CreateText(event.Description)
+		item.CreateElement("description").CreateCData(event.Description)
+		for _, category := range event.Categories {
+			item.CreateElement("category").CreateText(category)
+		}
 		knownGUIDs[event.GUID] = true
 		added = append(added, event)
 	}

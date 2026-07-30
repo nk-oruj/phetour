@@ -84,7 +84,7 @@ cp ~config.xml config.xml
     </deployment>
 
     <rss>
-        <publish source="html" output="html" path="rss.xml"/>
+        <publish source="html" output="html" path="rss.xml" stylesheet="input/rss/default.xsl"/>
     </rss>
 </config>
 ```
@@ -103,9 +103,45 @@ Use `--force` to skip the confirmation prompt in scripts. `deploy-changes` uses 
 
 ### RSS publication
 
-RSS is optional: omit the `<rss>` element to disable it. Each `<publish>` selects the deployed output whose page changes create feed events (`source`), the output folder where the feed is written (`output`), and its relative file path (`path`).
+RSS is optional: omit the `<rss>` element to disable it. Each `<publish>` selects the deployed output whose page changes are observed (`source`), the output folder where the feed is written (`output`), its relative path (`path`), and the XSLT stylesheet which formats its items (`stylesheet`). A stylesheet path is relative to the project and must end in `.xsl`.
 
-On deployment, Phetour reads the existing remote feed and appends RSS items for new post pages, new tag pages, and changed tag pages. A changed tag page publishes an update even when the change was caused by deleting a post. Deleted post or tag pages do not create RSS items. Existing RSS GUIDs prevent duplicate items on repeated deployments.
+`deploy-changes` and `deploy-all` never upload or delete the configured RSS files. After each successful output deployment, Phetour records the net unpublished post and tag state in the local, Git-ignored `publish.xml` file. Use `publish` whenever you want to release all accumulated changes:
+
+```sh
+go run ./source publish
+```
+
+Before publishing, a new post which was later deleted is removed from the pending set. A changed tag which returns to its previously published output is also removed. Repeated changes to a pending post or tag retain only its final deployed XML snapshot. Tag updates are recorded when their catalog changes because a post was deleted; deletion of a post or tag page by itself creates no RSS item.
+
+`publish` reads the existing remote feed, renders each pending item with its configured stylesheet, previews the RSS uploads, asks for confirmation, and then uploads only the feed files. It marks pending changes as published only after every configured feed succeeds, so a failed or cancelled publication can safely be retried without duplicate entries.
+
+#### RSS item stylesheets
+
+The provided [`input/rss/default.xsl`](input/rss/default.xsl) is a starting point. Phetour gives it one XML document per pending item:
+
+```xml
+<rss-item type="updated-tag" id="0x0005"
+          site-url="https://example.com" item-url="https://example.com/0x0005/">
+    <document>
+        <!-- final deployed post or tag source XML -->
+    </document>
+</rss-item>
+```
+
+The stylesheet must produce an `<rss-content>` element with `<title>` and `<description>` children. Description children may be HTML/XML markup, which Phetour stores safely as the RSS description. It may additionally produce any number of `<category>` elements.
+
+```xml
+<rss-content>
+    <title>Updated tag: Essays</title>
+    <description>
+        <p>Posts currently listed under this tag:</p>
+        <ul><li><a href="https://example.com/0x0001/">On Reading</a></li></ul>
+    </description>
+    <category>tag</category>
+</rss-content>
+```
+
+Phetour controls the RSS item link, GUID, and publication date. This keeps retrying safe while leaving the title, description, categories, and the presentation of post links fully customizable in XSLT.
 
 ---
 

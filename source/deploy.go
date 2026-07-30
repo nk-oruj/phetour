@@ -23,19 +23,21 @@ func runDeploy(forceAll bool, force bool) error {
 		}
 	}
 
-	if err := prepareRSSPublications(config); err != nil {
-		return err
-	}
-
 	plans := make([]RsyncPlan, 0, len(config.Deployment.Outputs))
 	for _, output := range config.Deployment.Outputs {
-		plan, err := previewRsync(config.Deployment.SSHAlias, output, forceAll, nil)
+		plan, err := previewRsync(config.Deployment.SSHAlias, output, forceAll, rssPathsForOutput(config.RSS, output.Name))
 		if err != nil {
 			return err
 		}
 		plans = append(plans, plan)
 		printRsyncPlan(plan)
 	}
+
+	pendingUpdates, err := planDeployPublicationUpdates(config, plans)
+	if err != nil {
+		return err
+	}
+	printPendingPublicationUpdates(pendingUpdates)
 
 	proceed, err := confirmPlan(force)
 	if err != nil {
@@ -46,58 +48,28 @@ func runDeploy(forceAll bool, force bool) error {
 		return nil
 	}
 
+	state, err := loadPublishState()
+	if err != nil {
+		return err
+	}
 	for _, plan := range plans {
 		if err := executeRsync(plan); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func prepareRSSPublications(config Config) error {
-	if len(config.RSS) == 0 {
-		return nil
-	}
-
-	keylock, err := LoadKeylock()
-	if err != nil {
-		return err
-	}
-	sourcePlans := map[string]RsyncPlan{}
-	for _, publication := range config.RSS {
-		if _, exists := sourcePlans[publication.Source]; exists {
-			continue
-		}
-		output, _ := findDeploymentOutput(config.Deployment, publication.Source)
-		excludes := rssPathsForSource(config.RSS, publication.Source)
-		plan, err := previewRsync(config.Deployment.SSHAlias, output, false, excludes)
-		if err != nil {
-			return err
-		}
-		sourcePlans[publication.Source] = plan
-	}
-
-	for _, publication := range config.RSS {
-		events, err := buildRSSEvents(sourcePlans[publication.Source].Changes, publication.Source, config.Site, keylock)
-		if err != nil {
-			return err
-		}
-		added, err := writeRSSPublication(publication, config.Site, config.Deployment, config.Deployment.SSHAlias, events)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("RSS output/%s/%s: %d new event(s)\n", publication.Output, publication.Path, len(added))
-		for _, event := range added {
-			fmt.Println("  " + event.Title)
+		if updates := pendingUpdates[plan.Output.Name]; len(updates) > 0 {
+			applyPublishUpdates(&state, updates)
+			if err := state.Save(); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func rssPathsForSource(publications []RSSPublication, source string) []string {
+func rssPathsForOutput(publications []RSSPublication, output string) []string {
 	paths := []string{}
 	for _, publication := range publications {
-		if publication.Output == source {
+		if publication.Output == output {
 			paths = append(paths, publication.Path)
 		}
 	}
