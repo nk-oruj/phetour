@@ -1,13 +1,13 @@
 package main
 
 import (
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/beevik/etree"
 )
@@ -16,80 +16,13 @@ type RSSItem struct {
 	Title       string
 	Link        string
 	GUID        string
+	PublishedAt time.Time
 	Description string
 }
 
-func buildRSSPublications(config Config, keylock *Keylock) error {
-	for _, publication := range config.RSS {
-		items, err := buildRSSItems(publication, config.Site, keylock)
-		if err != nil {
-			return err
-		}
-		if err := writeRSSFeed(publication, config.Site, items); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func buildRSSItems(publication RSSPublication, site SiteConfig, keylock *Keylock) ([]RSSItem, error) {
-	items := []RSSItem{}
-	for index := len(keylock.Keys) - 1; index >= 0; index-- {
-		key := keylock.Keys[index]
-		kind := rssDocumentKind(key.Value)
-		if kind == "" {
-			continue
-		}
-		id := KeyIDToHex(key.ID)
-		document, exists, err := generatedRSSDocument(id)
-		if err != nil {
-			return nil, err
-		}
-		if !exists {
-			continue
-		}
-		item, err := renderRSSItem(publication.Stylesheet, site, kind, id, document)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, nil
-}
-
-func rssDocumentKind(keyValue string) string {
-	if strings.HasPrefix(keyValue, "POST:") {
-		return "post"
-	}
-	if strings.HasPrefix(keyValue, "TAG:") {
-		return "tag"
-	}
-	return ""
-}
-
-func generatedRSSDocument(id string) (*etree.Element, bool, error) {
-	document := etree.NewDocument()
-	filePath := filepath.Join("output", "xml", id, "index.xml")
-	if err := document.ReadFromFile(filePath); os.IsNotExist(err) {
-		return nil, false, nil
-	} else if err != nil {
-		return nil, false, fmt.Errorf("failed to read generated document %s: %w", id, err)
-	}
-	if document.Root() == nil || document.Root().Tag != "document" {
-		return nil, false, fmt.Errorf("generated document %s has no document root", id)
-	}
-	return document.Root(), true, nil
-}
-
-func renderRSSItem(stylesheet string, site SiteConfig, kind string, id string, source *etree.Element) (RSSItem, error) {
-	input := etree.NewDocument()
-	root := input.CreateElement("rss-item")
-	root.CreateAttr("type", kind)
-	root.CreateAttr("id", id)
-	root.CreateAttr("site-url", strings.TrimRight(site.URL, "/"))
-	root.CreateAttr("item-url", strings.TrimRight(site.URL, "/")+"/"+id+"/")
-	root.AddChild(source.Copy())
-
+func renderLibraryUpdate(stylesheet string, site SiteConfig, update *etree.Element) (RSSItem, error) {
+	input := etree.NewDocumentWithRoot(update.Copy())
+	input.Root().CreateAttr("site-url", strings.TrimRight(site.URL, "/"))
 	temporaryFile, err := os.CreateTemp("", "phetour-rss-*.xml")
 	if err != nil {
 		return RSSItem{}, fmt.Errorf("failed to create RSS stylesheet input: %w", err)
@@ -103,7 +36,6 @@ func renderRSSItem(stylesheet string, site SiteConfig, kind string, id string, s
 	if err := temporaryFile.Close(); err != nil {
 		return RSSItem{}, fmt.Errorf("failed to close RSS stylesheet input: %w", err)
 	}
-
 	content, err := transformRSSWithXsltproc(stylesheet, temporaryPath)
 	if err != nil {
 		return RSSItem{}, err
@@ -121,12 +53,16 @@ func renderRSSItem(stylesheet string, site SiteConfig, kind string, id string, s
 	if title == nil || strings.TrimSpace(title.Text()) == "" || description == nil {
 		return RSSItem{}, fmt.Errorf("RSS stylesheet %s must produce title and description elements", stylesheet)
 	}
-	descriptionMarkup := rssDescriptionMarkup(description)
+	publishedAt, err := time.Parse(time.RFC3339, update.SelectAttrValue("published-at", ""))
+	if err != nil {
+		return RSSItem{}, fmt.Errorf("library update has an invalid publication date: %w", err)
+	}
 	return RSSItem{
 		Title:       strings.TrimSpace(title.Text()),
-		Link:        strings.TrimRight(site.URL, "/") + "/" + id + "/",
-		GUID:        rssGUID(descriptionMarkup),
-		Description: descriptionMarkup,
+		Link:        site.URL,
+		GUID:        update.SelectAttrValue("guid", ""),
+		PublishedAt: publishedAt,
+		Description: rssDescriptionMarkup(description),
 	}, nil
 }
 
@@ -141,7 +77,7 @@ func transformRSSWithXsltproc(stylesheet string, inputPath string) ([]byte, erro
 	if !errors.Is(err, exec.ErrNotFound) {
 		return nil, fmt.Errorf("RSS stylesheet %s failed: %s", stylesheet, strings.TrimSpace(string(output)))
 	}
-	return nil, fmt.Errorf("RSS stylesheet needs xsltproc: install it before building RSS")
+	return nil, fmt.Errorf("RSS stylesheet needs xsltproc: install it before publishing RSS")
 }
 
 func rssDescriptionMarkup(description *etree.Element) string {
@@ -161,11 +97,6 @@ func rssDescriptionMarkup(description *etree.Element) string {
 	return strings.TrimSpace(builder.String())
 }
 
-func rssGUID(description string) string {
-	hash := sha256.Sum256([]byte(description))
-	return fmt.Sprintf("%x", hash[:])
-}
-
 func writeRSSFeed(publication RSSPublication, site SiteConfig, items []RSSItem) error {
 	document := etree.NewDocument()
 	rss := document.CreateElement("rss")
@@ -181,9 +112,9 @@ func writeRSSFeed(publication RSSPublication, site SiteConfig, items []RSSItem) 
 		guid := element.CreateElement("guid")
 		guid.CreateAttr("isPermaLink", "false")
 		guid.CreateText(item.GUID)
+		element.CreateElement("pubDate").CreateText(item.PublishedAt.UTC().Format(time.RFC1123Z))
 		element.CreateElement("description").CreateCData(item.Description)
 	}
-
 	localPath := filepath.Join("output", publication.Output, filepath.FromSlash(publication.Path))
 	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
 		return fmt.Errorf("failed to create RSS output directory: %w", err)

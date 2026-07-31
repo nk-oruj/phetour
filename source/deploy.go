@@ -25,7 +25,7 @@ func runDeploy(forceAll bool, force bool) error {
 
 	plans := make([]RsyncPlan, 0, len(config.Deployment.Outputs))
 	for _, output := range config.Deployment.Outputs {
-		plan, err := previewRsync(config.Deployment.SSHAlias, output, forceAll, nil)
+		plan, err := previewRsync(config.Deployment.SSHAlias, output, forceAll, rssPathsForOutput(config.RSS, output.Name))
 		if err != nil {
 			return err
 		}
@@ -47,7 +47,35 @@ func runDeploy(forceAll bool, force bool) error {
 			return err
 		}
 	}
+	if len(config.RSS) > 0 && !forceAll {
+		keylock, err := LoadKeylock()
+		if err != nil {
+			return err
+		}
+		snapshot, err := buildLibrarySnapshot(keylock)
+		if err != nil {
+			return err
+		}
+		state, err := loadState()
+		if err != nil {
+			return err
+		}
+		state.Deployed = snapshot
+		if err := state.Save(); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func rssPathsForOutput(publications []RSSPublication, output string) []string {
+	paths := []string{}
+	for _, publication := range publications {
+		if publication.Output == output {
+			paths = append(paths, publication.Path)
+		}
+	}
+	return paths
 }
 
 type RsyncPlan struct {

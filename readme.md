@@ -83,7 +83,7 @@ cp ~config.xml config.xml
         <output name="gmi" remote="/var/gmi"/>
     </deployment>
 
-    <rss>
+    <rss entry-limit="5">
         <publish output="html" path="rss.xml" stylesheet="input/rss/default.xsl"/>
     </rss>
 </config>
@@ -103,36 +103,55 @@ Use `--force` to skip the confirmation prompt in scripts. `deploy-changes` uses 
 
 ### RSS publication
 
-RSS is optional: omit the `<rss>` element to disable it. Every build regenerates each configured feed from the current intermediate post and tag documents. A `<publish>` element selects the output folder where the feed is written (`output`), its relative path (`path`), and the XSLT stylesheet which formats its items (`stylesheet`). A stylesheet path is relative to the project and must end in `.xsl`.
+RSS is optional: omit the `<rss>` element to disable it. A `<publish>` element selects the output folder where the feed is written (`output`), its relative path (`path`), and the XSLT stylesheet which formats its items (`stylesheet`). `entry-limit` controls how many previously published library updates remain in each feed.
 
-The generated feed contains the current post and tag pages only. A changed page produces an item with a changed description GUID; a deleted page silently disappears. `deploy-changes` then uploads `rss.xml` only when its generated contents differ.
+```sh
+# deploy pages and record their semantic library state
+go run ./source deploy-changes
+
+# publish one grouped update for every net change since the last publication
+go run ./source publish
+```
+
+Page deployment deliberately excludes the configured RSS files, so an ordinary build cannot delete an existing feed. After all page outputs deploy successfully, Phetour saves their semantic post and catalog snapshot in the local, Git-ignored `state.xml`. `publish` compares that deployed snapshot to the last published snapshot and creates one RSS item which groups added, revised, and removed posts plus catalog restructuring. It uploads only the RSS files and updates `state.xml` after every feed upload succeeds.
+
+`deploy-all` is a resynchronization command: it uploads every page file but deliberately does not update `state.xml`, so it cannot create a bulk RSS publication. Use `deploy-changes` for deployments that should be eligible for publication.
+
+If a post or catalog is changed and then restored before `publish`, it produces no update. Several deployments before publishing are bundled into one item using their final deployed state. The RSS item GUID identifies that semantic change-set, while its `pubDate` is the time of publication.
 
 #### RSS item stylesheets
 
-The provided [`input/rss/default.xsl`](input/rss/default.xsl) is a starting point. Phetour gives it one XML document per current post or tag page:
+The provided [`input/rss/default.xsl`](input/rss/default.xsl) is a starting point. Phetour gives it one grouped update document:
 
 ```xml
-<rss-item type="tag" id="0x0005"
-          site-url="https://example.com" item-url="https://example.com/0x0005/">
-    <document>
-        <!-- final deployed post or tag source XML -->
-    </document>
-</rss-item>
+<library-update guid="..." published-at="2026-07-31T12:00:00Z" site-url="https://example.com">
+    <posts>
+        <added><post id="0x0012" title="New post"/></added>
+        <revised><post id="0x0004" title="Existing post"/></revised>
+    </posts>
+    <catalogs>
+        <revised>
+            <tag id="0x0005" title="Essays">
+                <added-member id="0x0012" title="New post"/>
+            </tag>
+        </revised>
+    </catalogs>
+</library-update>
 ```
 
 The stylesheet must produce an `<rss-content>` element with `<title>` and `<description>` children. Description children may be HTML/XML markup, which Phetour stores safely as the RSS description.
 
 ```xml
 <rss-content>
-    <title>Tag: Essays</title>
+    <title>Library update</title>
     <description>
-        <p>Posts currently listed under this tag:</p>
-        <ul><li><a href="https://example.com/0x0001/">On Reading</a></li></ul>
+        <p><strong>Added posts</strong></p>
+        <ul><li><a href="https://example.com/0x0012/">[0x0012] - New post</a></li></ul>
     </description>
 </rss-content>
 ```
 
-Phetour controls the RSS item link and GUID. The GUID is the full SHA-256 hash of the rendered description; no categories or publication dates are added. The title, description, and presentation of post links remain customizable in XSLT.
+Phetour controls the RSS item link, GUID, and publication date. The title, description, and presentation of changed posts and catalogs remain customizable in XSLT.
 
 ---
 

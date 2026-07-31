@@ -6,3 +6,6 @@ deploy-changes:
 
 deploy-all:
 	go run ./source deploy-all
+
+publish:
+	go run ./source publish

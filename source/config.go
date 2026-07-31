@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/beevik/etree"
@@ -13,9 +14,10 @@ import (
 const configFilePath = "./config.xml"
 
 type Config struct {
-	Deployment DeploymentConfig
-	Site       SiteConfig
-	RSS        []RSSPublication
+	Deployment    DeploymentConfig
+	Site          SiteConfig
+	RSSEntryLimit int
+	RSS           []RSSPublication
 }
 
 type DeploymentOutput struct {
@@ -82,6 +84,11 @@ func loadConfig() (Config, error) {
 	if !strings.HasPrefix(config.Site.URL, "https://") && !strings.HasPrefix(config.Site.URL, "http://") {
 		return Config{}, fmt.Errorf("site url must start with https:// or http://")
 	}
+	entryLimit, err := strconv.Atoi(rss.SelectAttrValue("entry-limit", ""))
+	if err != nil || entryLimit < 1 {
+		return Config{}, fmt.Errorf("rss entry-limit must be a positive integer")
+	}
+	config.RSSEntryLimit = entryLimit
 
 	outputs := outputNames(config.Deployment)
 	publicationPaths := map[string]bool{}

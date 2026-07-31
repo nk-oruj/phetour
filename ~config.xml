@@ -9,7 +9,7 @@
         <output name="gmi" remote="/var/gmi"/>
     </deployment>
     
-    <rss>
+    <rss entry-limit="5">
         <publish output="html" path="rss.xml" stylesheet="input/rss/default.xsl"/>
     </rss>
 </config>
