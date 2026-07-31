@@ -115,7 +115,7 @@ go run ./source publish
 
 Page deployment deliberately excludes the configured RSS files, so an ordinary build cannot delete an existing feed. After all page outputs deploy successfully, Phetour saves their semantic post and catalog snapshot in the local, Git-ignored `state.xml`. `publish` compares that deployed snapshot to the last published snapshot and creates one RSS item with `Created`, `Revised`, and `Deleted` sections. Created and revised pages contain their complete current relations; the default stylesheet displays them up to `member-limit`. It uploads only the RSS files and updates `state.xml` after every feed upload succeeds.
 
-`deploy-all` is a resynchronization command: it uploads every page file but deliberately does not update `state.xml`, so it cannot create a bulk RSS publication. Use `deploy-changes` for deployments that should be eligible for publication.
+`deploy-all` is a resynchronization command: it uploads every page file and records the deployed library state, just as `deploy-changes` does. If that state has never been published, a subsequent `publish` can create one initial RSS item for the whole library.
 
 If a post or catalog is changed and then restored before `publish`, it produces no update. Several deployments before publishing are bundled into one item using their final deployed state. The RSS item GUID identifies that semantic change-set, while its `pubDate` is the time of publication.
 

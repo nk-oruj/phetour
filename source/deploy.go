@@ -47,7 +47,7 @@ func runDeploy(forceAll bool, force bool) error {
 			return err
 		}
 	}
-	if len(config.RSS) > 0 && !forceAll {
+	if len(config.RSS) > 0 {
 		keylock, err := LoadKeylock()
 		if err != nil {
 			return err
