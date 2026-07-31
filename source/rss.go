@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,7 +21,7 @@ type RSSItem struct {
 	Description string
 }
 
-func renderLibraryUpdate(stylesheet string, site SiteConfig, update *etree.Element) (RSSItem, error) {
+func renderLibraryUpdate(stylesheet string, site SiteConfig, update *etree.Element, memberLimit int) (RSSItem, error) {
 	input := etree.NewDocumentWithRoot(update.Copy())
 	input.Root().CreateAttr("site-url", strings.TrimRight(site.URL, "/"))
 	temporaryFile, err := os.CreateTemp("", "phetour-rss-*.xml")
@@ -36,7 +37,7 @@ func renderLibraryUpdate(stylesheet string, site SiteConfig, update *etree.Eleme
 	if err := temporaryFile.Close(); err != nil {
 		return RSSItem{}, fmt.Errorf("failed to close RSS stylesheet input: %w", err)
 	}
-	content, err := transformRSSWithXsltproc(stylesheet, temporaryPath)
+	content, err := transformRSSWithXsltproc(stylesheet, temporaryPath, memberLimit)
 	if err != nil {
 		return RSSItem{}, err
 	}
@@ -66,11 +67,11 @@ func renderLibraryUpdate(stylesheet string, site SiteConfig, update *etree.Eleme
 	}, nil
 }
 
-func transformRSSWithXsltproc(stylesheet string, inputPath string) ([]byte, error) {
+func transformRSSWithXsltproc(stylesheet string, inputPath string, memberLimit int) ([]byte, error) {
 	if _, err := os.Stat(stylesheet); err != nil {
 		return nil, fmt.Errorf("failed to access RSS stylesheet %s: %w", stylesheet, err)
 	}
-	output, err := exec.Command("xsltproc", stylesheet, inputPath).CombinedOutput()
+	output, err := exec.Command("xsltproc", "--stringparam", "member-limit", strconv.Itoa(memberLimit), stylesheet, inputPath).CombinedOutput()
 	if err == nil {
 		return output, nil
 	}

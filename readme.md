@@ -83,7 +83,7 @@ cp ~config.xml config.xml
         <output name="gmi" remote="/var/gmi"/>
     </deployment>
 
-    <rss entry-limit="5">
+    <rss entry-limit="5" member-limit="10">
         <publish output="html" path="rss.xml" stylesheet="input/rss/default.xsl"/>
     </rss>
 </config>
@@ -103,7 +103,7 @@ Use `--force` to skip the confirmation prompt in scripts. `deploy-changes` uses 
 
 ### RSS publication
 
-RSS is optional: omit the `<rss>` element to disable it. A `<publish>` element selects the output folder where the feed is written (`output`), its relative path (`path`), and the XSLT stylesheet which formats its items (`stylesheet`). `entry-limit` controls how many previously published library updates remain in each feed.
+RSS is optional: omit the `<rss>` element to disable it. A `<publish>` element selects the output folder where the feed is written (`output`), its relative path (`path`), and the XSLT stylesheet which formats its items (`stylesheet`). `entry-limit` controls how many previously published library updates remain in each feed. `member-limit` controls how many tag links a post, or post links a catalog, shows within one update; the default stylesheet adds an ellipsis when more links exist.
 
 ```sh
 # deploy pages and record their semantic library state
@@ -113,7 +113,7 @@ go run ./source deploy-changes
 go run ./source publish
 ```
 
-Page deployment deliberately excludes the configured RSS files, so an ordinary build cannot delete an existing feed. After all page outputs deploy successfully, Phetour saves their semantic post and catalog snapshot in the local, Git-ignored `state.xml`. `publish` compares that deployed snapshot to the last published snapshot and creates one RSS item which groups added, revised, and removed posts plus catalog restructuring. It uploads only the RSS files and updates `state.xml` after every feed upload succeeds.
+Page deployment deliberately excludes the configured RSS files, so an ordinary build cannot delete an existing feed. After all page outputs deploy successfully, Phetour saves their semantic post and catalog snapshot in the local, Git-ignored `state.xml`. `publish` compares that deployed snapshot to the last published snapshot and creates one RSS item with `Created`, `Revised`, and `Deleted` sections. Created and revised pages contain their complete current relations; the default stylesheet displays them up to `member-limit`. It uploads only the RSS files and updates `state.xml` after every feed upload succeeds.
 
 `deploy-all` is a resynchronization command: it uploads every page file but deliberately does not update `state.xml`, so it cannot create a bulk RSS publication. Use `deploy-changes` for deployments that should be eligible for publication.
 
@@ -125,17 +125,16 @@ The provided [`input/rss/default.xsl`](input/rss/default.xsl) is a starting poin
 
 ```xml
 <library-update guid="..." published-at="2026-07-31T12:00:00Z" site-url="https://example.com">
-    <posts>
-        <added><post id="0x0012" title="New post"/></added>
-        <revised><post id="0x0004" title="Existing post"/></revised>
-    </posts>
-    <catalogs>
-        <revised>
-            <tag id="0x0005" title="Essays">
-                <added-member id="0x0012" title="New post"/>
-            </tag>
-        </revised>
-    </catalogs>
+    <created>
+        <post id="0x0012" title="New post">
+            <member id="0x0005" title="Essays"/>
+        </post>
+        <tag id="0x0005" title="Essays">
+            <member id="0x0012" title="New post"/>
+        </tag>
+    </created>
+    <revised><post id="0x0004" title="Existing post"/></revised>
+    <deleted><post id="0x0003" title="Removed post"/></deleted>
 </library-update>
 ```
 
@@ -145,7 +144,7 @@ The stylesheet must produce an `<rss-content>` element with `<title>` and `<desc
 <rss-content>
     <title>Library update</title>
     <description>
-        <p><strong>Added posts</strong></p>
+        <p><strong>Created</strong></p>
         <ul><li><a href="https://example.com/0x0012/">[0x0012] - New post</a></li></ul>
     </description>
 </rss-content>

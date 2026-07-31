@@ -41,7 +41,7 @@ func runPublish(force bool) error {
 	candidateHistory := append(append([]*etree.Element{}, state.History...), update)
 	plans := []RSSUploadPlan{}
 	for _, publication := range config.RSS {
-		items, err := renderRSSHistory(publication, config.Site, candidateHistory, config.RSSEntryLimit)
+		items, err := renderRSSHistory(publication, config.Site, candidateHistory, config.RSSEntryLimit, config.RSSMemberLimit)
 		if err != nil {
 			return err
 		}
@@ -95,12 +95,12 @@ func libraryUpdateContent(update *etree.Element) []byte {
 	return content
 }
 
-func renderRSSHistory(publication RSSPublication, site SiteConfig, history []*etree.Element, entryLimit int) ([]RSSItem, error) {
+func renderRSSHistory(publication RSSPublication, site SiteConfig, history []*etree.Element, entryLimit int, memberLimit int) ([]RSSItem, error) {
 	items := []RSSItem{}
 	first := len(history) - 1
 	last := first - entryLimit
 	for index := first; index > last && index >= 0; index-- {
-		item, err := renderLibraryUpdate(publication.Stylesheet, site, history[index])
+		item, err := renderLibraryUpdate(publication.Stylesheet, site, history[index], memberLimit)
 		if err != nil {
 			return nil, err
 		}

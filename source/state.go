@@ -108,10 +108,7 @@ func buildLibrarySnapshot(keylock *Keylock) (LibrarySnapshot, error) {
 				title = titleElement.SelectAttrValue("value", "")
 			}
 		}
-		page := LibraryPage{ID: id, Kind: kind, Title: title, Fingerprint: contentHash(content)}
-		if kind == "tag" {
-			page.Members = tagMembers(document.Root())
-		}
+		page := LibraryPage{ID: id, Kind: kind, Title: title, Fingerprint: contentHash(content), Members: pageMembers(document.Root(), kind)}
 		snapshot.Pages = append(snapshot.Pages, page)
 	}
 	sort.Slice(snapshot.Pages, func(i, j int) bool { return snapshot.Pages[i].ID < snapshot.Pages[j].ID })
@@ -128,8 +125,18 @@ func libraryPageKind(keyValue string) string {
 	return ""
 }
 
-func tagMembers(document *etree.Element) []LibraryMember {
+func pageMembers(document *etree.Element, kind string) []LibraryMember {
 	members := []LibraryMember{}
+	if kind == "post" {
+		meta := document.SelectElement("meta")
+		if meta == nil {
+			return members
+		}
+		for _, tag := range meta.SelectElements("tag") {
+			members = append(members, LibraryMember{ID: tag.SelectAttrValue("id", ""), Title: tag.SelectAttrValue("label", "")})
+		}
+		return members
+	}
 	body := document.SelectElement("body")
 	if body == nil {
 		return members
@@ -183,28 +190,25 @@ func contentHash(content []byte) string {
 
 func buildLibraryUpdate(published LibrarySnapshot, deployed LibrarySnapshot) *etree.Element {
 	update := etree.NewElement("library-update")
-	posts := update.CreateElement("posts")
-	catalogs := update.CreateElement("catalogs")
+	created := update.CreateElement("created")
+	revised := update.CreateElement("revised")
+	deleted := update.CreateElement("deleted")
 	publishedPages := pagesByID(published)
 	deployedPages := pagesByID(deployed)
 	for _, page := range deployed.Pages {
 		previous, exists := publishedPages[page.ID]
 		if !exists {
-			writePageChange(changeContainer(posts, catalogs, page.Kind, "added"), page)
+			writePageChange(created, page, true)
 		} else if previous.Fingerprint != page.Fingerprint {
-			change := writePageChange(changeContainer(posts, catalogs, page.Kind, "revised"), page)
-			if page.Kind == "tag" {
-				writeMemberChanges(change, previous.Members, page.Members)
-			}
+			writePageChange(revised, page, true)
 		}
 	}
 	for _, page := range published.Pages {
 		if _, exists := deployedPages[page.ID]; !exists {
-			writePageChange(changeContainer(posts, catalogs, page.Kind, "removed"), page)
+			writePageChange(deleted, page, false)
 		}
 	}
-	removeEmptyChangeContainers(posts)
-	removeEmptyChangeContainers(catalogs)
+	removeEmptyChangeContainers(update)
 	return update
 }
 
@@ -216,52 +220,18 @@ func pagesByID(snapshot LibrarySnapshot) map[string]LibraryPage {
 	return pages
 }
 
-func changeContainer(posts *etree.Element, catalogs *etree.Element, kind string, change string) *etree.Element {
-	parent := posts
-	if kind == "tag" {
-		parent = catalogs
-	}
-	element := parent.SelectElement(change)
-	if element == nil {
-		element = parent.CreateElement(change)
-	}
-	return element
-}
-
-func writePageChange(parent *etree.Element, page LibraryPage) *etree.Element {
+func writePageChange(parent *etree.Element, page LibraryPage, includeMembers bool) *etree.Element {
 	element := parent.CreateElement(page.Kind)
 	element.CreateAttr("id", page.ID)
 	element.CreateAttr("title", page.Title)
+	if includeMembers {
+		for _, member := range page.Members {
+			memberElement := element.CreateElement("member")
+			memberElement.CreateAttr("id", member.ID)
+			memberElement.CreateAttr("title", member.Title)
+		}
+	}
 	return element
-}
-
-func writeMemberChanges(parent *etree.Element, previous []LibraryMember, current []LibraryMember) {
-	previousMembers := membersByID(previous)
-	currentMembers := membersByID(current)
-	for _, member := range current {
-		if _, exists := previousMembers[member.ID]; !exists {
-			writeMemberChange(parent, "added-member", member)
-		}
-	}
-	for _, member := range previous {
-		if _, exists := currentMembers[member.ID]; !exists {
-			writeMemberChange(parent, "removed-member", member)
-		}
-	}
-}
-
-func membersByID(members []LibraryMember) map[string]LibraryMember {
-	result := map[string]LibraryMember{}
-	for _, member := range members {
-		result[member.ID] = member
-	}
-	return result
-}
-
-func writeMemberChange(parent *etree.Element, tag string, member LibraryMember) {
-	element := parent.CreateElement(tag)
-	element.CreateAttr("id", member.ID)
-	element.CreateAttr("title", member.Title)
 }
 
 func removeEmptyChangeContainers(parent *etree.Element) {
@@ -273,5 +243,5 @@ func removeEmptyChangeContainers(parent *etree.Element) {
 }
 
 func hasLibraryChanges(update *etree.Element) bool {
-	return len(update.FindElements("posts/*")) > 0 || len(update.FindElements("catalogs/*")) > 0
+	return len(update.FindElements("created/*")) > 0 || len(update.FindElements("revised/*")) > 0 || len(update.FindElements("deleted/*")) > 0
 }
