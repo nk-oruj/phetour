@@ -25,19 +25,13 @@ func runDeploy(forceAll bool, force bool) error {
 
 	plans := make([]RsyncPlan, 0, len(config.Deployment.Outputs))
 	for _, output := range config.Deployment.Outputs {
-		plan, err := previewRsync(config.Deployment.SSHAlias, output, forceAll, rssPathsForOutput(config.RSS, output.Name))
+		plan, err := previewRsync(config.Deployment.SSHAlias, output, forceAll, nil)
 		if err != nil {
 			return err
 		}
 		plans = append(plans, plan)
 		printRsyncPlan(plan)
 	}
-
-	pendingUpdates, err := planDeployPublicationUpdates(config, plans)
-	if err != nil {
-		return err
-	}
-	printPendingPublicationUpdates(pendingUpdates)
 
 	proceed, err := confirmPlan(force)
 	if err != nil {
@@ -48,32 +42,12 @@ func runDeploy(forceAll bool, force bool) error {
 		return nil
 	}
 
-	state, err := loadPublishState()
-	if err != nil {
-		return err
-	}
 	for _, plan := range plans {
 		if err := executeRsync(plan); err != nil {
 			return err
 		}
-		if updates := pendingUpdates[plan.Output.Name]; len(updates) > 0 {
-			applyPublishUpdates(&state, updates)
-			if err := state.Save(); err != nil {
-				return err
-			}
-		}
 	}
 	return nil
-}
-
-func rssPathsForOutput(publications []RSSPublication, output string) []string {
-	paths := []string{}
-	for _, publication := range publications {
-		if publication.Output == output {
-			paths = append(paths, publication.Path)
-		}
-	}
-	return paths
 }
 
 type RsyncPlan struct {

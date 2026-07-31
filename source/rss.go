@@ -1,14 +1,13 @@
 package main
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/beevik/etree"
 )
@@ -18,113 +17,180 @@ type RSSItem struct {
 	Link        string
 	GUID        string
 	Description string
-	Categories  []string
 }
 
-func writeRSSPublication(publication RSSPublication, site SiteConfig, deployment DeploymentConfig, alias string, events []RSSItem) ([]RSSItem, error) {
-	output, found := findDeploymentOutput(deployment, publication.Output)
-	if !found {
-		return nil, fmt.Errorf("RSS publication output %q is not configured", publication.Output)
-	}
-	remotePath := path.Join(output.RemotePath, publication.Path)
-	remoteContent, exists, err := readRemoteFile(alias, remotePath)
-	if err != nil {
-		return nil, err
-	}
-
-	feed, err := readRSSFeed(remoteContent, exists, site)
-	if err != nil {
-		return nil, err
-	}
-	added := appendRSSItems(feed, events)
-	localPath := filepath.Join("output", publication.Output, filepath.FromSlash(publication.Path))
-	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-		return nil, fmt.Errorf("failed to create RSS output directory: %w", err)
-	}
-	if len(added) == 0 && exists {
-		if err := os.WriteFile(localPath, remoteContent, 0644); err != nil {
-			return nil, fmt.Errorf("failed to preserve RSS feed: %w", err)
+func buildRSSPublications(config Config, keylock *Keylock) error {
+	for _, publication := range config.RSS {
+		items, err := buildRSSItems(publication, config.Site, keylock)
+		if err != nil {
+			return err
 		}
-		return nil, nil
-	}
-
-	feed.Indent(4)
-	if err := feed.WriteToFile(localPath); err != nil {
-		return nil, fmt.Errorf("failed to write RSS feed: %w", err)
-	}
-	return added, nil
-}
-
-func readRemoteFile(alias string, remotePath string) ([]byte, bool, error) {
-	command := "if test -f " + shellQuote(remotePath) + "; then cat -- " + shellQuote(remotePath) + "; else exit 3; fi"
-	output, err := exec.Command("ssh", alias, command).CombinedOutput()
-	if err == nil {
-		return output, true, nil
-	}
-	var exitError *exec.ExitError
-	if errors.As(err, &exitError) && exitError.ExitCode() == 3 {
-		return nil, false, nil
-	}
-	return nil, false, fmt.Errorf("failed to read remote file %s: %s", remotePath, strings.TrimSpace(string(output)))
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
-}
-
-func readRSSFeed(content []byte, exists bool, site SiteConfig) (*etree.Document, error) {
-	if !exists {
-		document := etree.NewDocument()
-		rss := document.CreateElement("rss")
-		rss.CreateAttr("version", "2.0")
-		channel := rss.CreateElement("channel")
-		channel.CreateElement("title").CreateText(site.Title)
-		channel.CreateElement("link").CreateText(site.URL)
-		channel.CreateElement("description").CreateText(site.Description)
-		return document, nil
-	}
-
-	document := etree.NewDocument()
-	if err := document.ReadFromBytes(content); err != nil {
-		return nil, fmt.Errorf("remote RSS feed is invalid XML: %w", err)
-	}
-	if document.Root() == nil || document.Root().Tag != "rss" || document.Root().SelectElement("channel") == nil {
-		return nil, fmt.Errorf("remote RSS feed is not an RSS 2.0 document")
-	}
-	return document, nil
-}
-
-func appendRSSItems(feed *etree.Document, events []RSSItem) []RSSItem {
-	channel := feed.Root().SelectElement("channel")
-	knownGUIDs := map[string]bool{}
-	for _, item := range channel.SelectElements("item") {
-		guid := item.SelectElement("guid")
-		if guid != nil {
-			knownGUIDs[guid.Text()] = true
+		if err := writeRSSFeed(publication, config.Site, items); err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
-	added := []RSSItem{}
-	for _, event := range events {
-		if knownGUIDs[event.GUID] {
+func buildRSSItems(publication RSSPublication, site SiteConfig, keylock *Keylock) ([]RSSItem, error) {
+	items := []RSSItem{}
+	for index := len(keylock.Keys) - 1; index >= 0; index-- {
+		key := keylock.Keys[index]
+		kind := rssDocumentKind(key.Value)
+		if kind == "" {
 			continue
 		}
-		item := channel.CreateElement("item")
-		item.CreateElement("title").CreateText(event.Title)
-		item.CreateElement("link").CreateText(event.Link)
-		guid := item.CreateElement("guid")
-		guid.CreateAttr("isPermaLink", "false")
-		guid.CreateText(event.GUID)
-		item.CreateElement("pubDate").CreateText(time.Now().UTC().Format(time.RFC1123Z))
-		item.CreateElement("description").CreateCData(event.Description)
-		for _, category := range event.Categories {
-			item.CreateElement("category").CreateText(category)
+		id := KeyIDToHex(key.ID)
+		document, exists, err := generatedRSSDocument(id)
+		if err != nil {
+			return nil, err
 		}
-		knownGUIDs[event.GUID] = true
-		added = append(added, event)
+		if !exists {
+			continue
+		}
+		item, err := renderRSSItem(publication.Stylesheet, site, kind, id, document)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
 	}
-	if len(added) > 0 {
-		channel.CreateElement("lastBuildDate").CreateText(time.Now().UTC().Format(time.RFC1123Z))
+	return items, nil
+}
+
+func rssDocumentKind(keyValue string) string {
+	if strings.HasPrefix(keyValue, "POST:") {
+		return "post"
 	}
-	return added
+	if strings.HasPrefix(keyValue, "TAG:") {
+		return "tag"
+	}
+	return ""
+}
+
+func generatedRSSDocument(id string) (*etree.Element, bool, error) {
+	document := etree.NewDocument()
+	filePath := filepath.Join("output", "xml", id, "index.xml")
+	if err := document.ReadFromFile(filePath); os.IsNotExist(err) {
+		return nil, false, nil
+	} else if err != nil {
+		return nil, false, fmt.Errorf("failed to read generated document %s: %w", id, err)
+	}
+	if document.Root() == nil || document.Root().Tag != "document" {
+		return nil, false, fmt.Errorf("generated document %s has no document root", id)
+	}
+	return document.Root(), true, nil
+}
+
+func renderRSSItem(stylesheet string, site SiteConfig, kind string, id string, source *etree.Element) (RSSItem, error) {
+	input := etree.NewDocument()
+	root := input.CreateElement("rss-item")
+	root.CreateAttr("type", kind)
+	root.CreateAttr("id", id)
+	root.CreateAttr("site-url", strings.TrimRight(site.URL, "/"))
+	root.CreateAttr("item-url", strings.TrimRight(site.URL, "/")+"/"+id+"/")
+	root.AddChild(source.Copy())
+
+	temporaryFile, err := os.CreateTemp("", "phetour-rss-*.xml")
+	if err != nil {
+		return RSSItem{}, fmt.Errorf("failed to create RSS stylesheet input: %w", err)
+	}
+	temporaryPath := temporaryFile.Name()
+	defer os.Remove(temporaryPath)
+	if _, err := input.WriteTo(temporaryFile); err != nil {
+		temporaryFile.Close()
+		return RSSItem{}, fmt.Errorf("failed to write RSS stylesheet input: %w", err)
+	}
+	if err := temporaryFile.Close(); err != nil {
+		return RSSItem{}, fmt.Errorf("failed to close RSS stylesheet input: %w", err)
+	}
+
+	content, err := transformRSSWithXsltproc(stylesheet, temporaryPath)
+	if err != nil {
+		return RSSItem{}, err
+	}
+	document := etree.NewDocument()
+	if err := document.ReadFromBytes(content); err != nil {
+		return RSSItem{}, fmt.Errorf("RSS stylesheet %s produced invalid XML: %w", stylesheet, err)
+	}
+	result := document.Root()
+	if result == nil || result.Tag != "rss-content" {
+		return RSSItem{}, fmt.Errorf("RSS stylesheet %s must produce an rss-content root element", stylesheet)
+	}
+	title := result.SelectElement("title")
+	description := result.SelectElement("description")
+	if title == nil || strings.TrimSpace(title.Text()) == "" || description == nil {
+		return RSSItem{}, fmt.Errorf("RSS stylesheet %s must produce title and description elements", stylesheet)
+	}
+	descriptionMarkup := rssDescriptionMarkup(description)
+	return RSSItem{
+		Title:       strings.TrimSpace(title.Text()),
+		Link:        strings.TrimRight(site.URL, "/") + "/" + id + "/",
+		GUID:        rssGUID(descriptionMarkup),
+		Description: descriptionMarkup,
+	}, nil
+}
+
+func transformRSSWithXsltproc(stylesheet string, inputPath string) ([]byte, error) {
+	if _, err := os.Stat(stylesheet); err != nil {
+		return nil, fmt.Errorf("failed to access RSS stylesheet %s: %w", stylesheet, err)
+	}
+	output, err := exec.Command("xsltproc", stylesheet, inputPath).CombinedOutput()
+	if err == nil {
+		return output, nil
+	}
+	if !errors.Is(err, exec.ErrNotFound) {
+		return nil, fmt.Errorf("RSS stylesheet %s failed: %s", stylesheet, strings.TrimSpace(string(output)))
+	}
+	return nil, fmt.Errorf("RSS stylesheet needs xsltproc: install it before building RSS")
+}
+
+func rssDescriptionMarkup(description *etree.Element) string {
+	var builder strings.Builder
+	for _, child := range description.Child {
+		switch child := child.(type) {
+		case *etree.Element:
+			document := etree.NewDocumentWithRoot(child.Copy())
+			content, err := document.WriteToString()
+			if err == nil {
+				builder.WriteString(content)
+			}
+		case *etree.CharData:
+			builder.WriteString(string(child.Data))
+		}
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func rssGUID(description string) string {
+	hash := sha256.Sum256([]byte(description))
+	return fmt.Sprintf("%x", hash[:])
+}
+
+func writeRSSFeed(publication RSSPublication, site SiteConfig, items []RSSItem) error {
+	document := etree.NewDocument()
+	rss := document.CreateElement("rss")
+	rss.CreateAttr("version", "2.0")
+	channel := rss.CreateElement("channel")
+	channel.CreateElement("title").CreateText(site.Title)
+	channel.CreateElement("link").CreateText(site.URL)
+	channel.CreateElement("description").CreateText(site.Description)
+	for _, item := range items {
+		element := channel.CreateElement("item")
+		element.CreateElement("title").CreateText(item.Title)
+		element.CreateElement("link").CreateText(item.Link)
+		guid := element.CreateElement("guid")
+		guid.CreateAttr("isPermaLink", "false")
+		guid.CreateText(item.GUID)
+		element.CreateElement("description").CreateCData(item.Description)
+	}
+
+	localPath := filepath.Join("output", publication.Output, filepath.FromSlash(publication.Path))
+	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+		return fmt.Errorf("failed to create RSS output directory: %w", err)
+	}
+	document.Indent(4)
+	if err := document.WriteToFile(localPath); err != nil {
+		return fmt.Errorf("failed to write RSS feed: %w", err)
+	}
+	return nil
 }

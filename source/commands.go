@@ -29,8 +29,6 @@ func runCommand(arguments []string) error {
 		return runDeploy(false, force)
 	case "deploy-all":
 		return runDeploy(true, force)
-	case "publish":
-		return runPublish(force)
 	case "help":
 		printUsage()
 		return nil
@@ -47,7 +45,6 @@ func printUsage() {
 	fmt.Fprintln(os.Stdout, "  build-all         Alias for build.")
 	fmt.Fprintln(os.Stdout, "  deploy-changes    Synchronize changed output files with configured remotes.")
 	fmt.Fprintln(os.Stdout, "  deploy-all        Force every output file to upload to configured remotes.")
-	fmt.Fprintln(os.Stdout, "  publish           Generate and upload pending RSS publications.")
 	fmt.Fprintln(os.Stdout, "")
 	fmt.Fprintln(os.Stdout, "Each command displays its plan and asks for confirmation. Use --force to skip the prompt.")
 }

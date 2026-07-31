@@ -10,6 +10,6 @@
     </deployment>
     
     <rss>
-        <publish source="html" output="html" path="rss.xml" stylesheet="input/rss/default.xsl"/>
+        <publish output="html" path="rss.xml" stylesheet="input/rss/default.xsl"/>
     </rss>
 </config>

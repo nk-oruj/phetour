@@ -29,10 +29,32 @@ func runBuild(force bool) error {
 	if err := Build(source, taxonomy); err != nil {
 		return err
 	}
+	config, configured, err := loadRSSBuildConfig()
+	if err != nil {
+		return err
+	}
+	if configured {
+		if err := buildRSSPublications(config, keylock); err != nil {
+			return err
+		}
+	}
 	if err := keylock.Save(); err != nil {
 		return fmt.Errorf("failed to save lock file: %w", err)
 	}
 	return nil
+}
+
+func loadRSSBuildConfig() (Config, bool, error) {
+	if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
+		return Config{}, false, nil
+	} else if err != nil {
+		return Config{}, false, fmt.Errorf("failed to access config.xml: %w", err)
+	}
+	config, err := loadConfig()
+	if err != nil {
+		return Config{}, false, err
+	}
+	return config, len(config.RSS) > 0, nil
 }
 
 func Build(source *Source, taxonomy *Taxonomy) error {
