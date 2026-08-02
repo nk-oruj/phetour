@@ -15,6 +15,7 @@ const configFilePath = "./config.xml"
 
 type Config struct {
 	Deployment     DeploymentConfig
+	Styles         []StyleOutput
 	Site           SiteConfig
 	RSSEntryLimit  int
 	RSSMemberLimit int
@@ -29,6 +30,11 @@ type DeploymentOutput struct {
 type DeploymentConfig struct {
 	SSHAlias string
 	Outputs  []DeploymentOutput
+}
+
+type StyleOutput struct {
+	Output     string
+	Stylesheet string
 }
 
 type SiteConfig struct {
@@ -64,7 +70,12 @@ func loadConfig() (Config, error) {
 		return Config{}, err
 	}
 
-	config := Config{Deployment: deployment}
+	styles, err := readStyleOutputs(root)
+	if err != nil {
+		return Config{}, err
+	}
+
+	config := Config{Deployment: deployment, Styles: styles}
 	rss := root.SelectElement("rss")
 	if rss == nil {
 		return config, nil
@@ -124,6 +135,35 @@ func loadConfig() (Config, error) {
 	return config, nil
 }
 
+func readStyleOutputs(root *etree.Element) ([]StyleOutput, error) {
+	styles := root.SelectElement("styles")
+	if styles == nil {
+		return nil, fmt.Errorf("config.xml must contain a styles element")
+	}
+
+	outputs := map[string]bool{}
+	configuredStyles := []StyleOutput{}
+	for _, style := range styles.SelectElements("stylesheet") {
+		output := style.SelectAttrValue("output", "")
+		stylesheet := style.SelectAttrValue("path", "")
+		if !isSafeOutputName(output) || output == "xml" {
+			return nil, fmt.Errorf("stylesheet output %q must be a single output name other than xml", output)
+		}
+		if !isSafeRelativePath(stylesheet) || filepath.Ext(stylesheet) != ".xsl" {
+			return nil, fmt.Errorf("stylesheet path %q must be a relative .xsl path without ..", stylesheet)
+		}
+		if outputs[output] {
+			return nil, fmt.Errorf("stylesheet output %q is configured more than once", output)
+		}
+		outputs[output] = true
+		configuredStyles = append(configuredStyles, StyleOutput{Output: output, Stylesheet: stylesheet})
+	}
+	if len(configuredStyles) == 0 {
+		return nil, fmt.Errorf("styles must contain at least one stylesheet element")
+	}
+	return configuredStyles, nil
+}
+
 func readDeploymentConfig(root *etree.Element) (DeploymentConfig, error) {
 	deployment := root.SelectElement("deployment")
 	if deployment == nil {
@@ -174,5 +214,9 @@ func findDeploymentOutput(config DeploymentConfig, name string) (DeploymentOutpu
 }
 
 func isSafeRelativePath(value string) bool {
-	return value != "" && !strings.HasPrefix(value, "/") && path.Clean(value) == value && !strings.HasPrefix(value, "../") && value != ".."
+	return value != "" && !strings.HasPrefix(value, "/") && !strings.Contains(value, "\\") && path.Clean(value) == value && !strings.HasPrefix(value, "../") && value != ".."
+}
+
+func isSafeOutputName(value string) bool {
+	return value != "" && filepath.Base(value) == value && strings.TrimSpace(value) == value && !strings.ContainsAny(value, ".\\/")
 }

@@ -7,6 +7,10 @@ import (
 )
 
 func runBuild(force bool) error {
+	config, err := loadConfig()
+	if err != nil {
+		return err
+	}
 	fmt.Println("Build: fully regenerate output/")
 	proceed, err := confirmPlan(force)
 	if err != nil {
@@ -26,7 +30,7 @@ func runBuild(force bool) error {
 	if err != nil {
 		return err
 	}
-	if err := Build(source, taxonomy); err != nil {
+	if err := Build(source, taxonomy, config.Styles); err != nil {
 		return err
 	}
 	if err := keylock.Save(); err != nil {
@@ -35,10 +39,9 @@ func runBuild(force bool) error {
 	return nil
 }
 
-func Build(source *Source, taxonomy *Taxonomy) error {
+func Build(source *Source, taxonomy *Taxonomy, styles []StyleOutput) error {
 	const xmlOutputPath = "./output/xml"
 	const staticsInputPath = "./input/statics"
-	const stylesInputPath = "./input/styles"
 
 	outputParent := filepath.Dir(xmlOutputPath)
 	if entries, err := os.ReadDir(outputParent); err == nil {
@@ -75,7 +78,7 @@ func Build(source *Source, taxonomy *Taxonomy) error {
 		return fmt.Errorf("failed to copy static files: %w", err)
 	}
 
-	if err := applyStylesheets(xmlOutputPath, stylesInputPath); err != nil {
+	if err := applyStylesheets(xmlOutputPath, styles); err != nil {
 		return fmt.Errorf("failed to apply stylesheets: %w", err)
 	}
 

@@ -10,31 +10,11 @@ import (
 	"strings"
 )
 
-func applyStylesheets(xmlOutputPath string, stylesInputPath string) error {
-	if _, err := os.Stat(stylesInputPath); os.IsNotExist(err) {
-		return nil
-	}
-
-	var xslFiles []string
-	err := filepath.Walk(stylesInputPath, func(path string, info fs.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && strings.HasSuffix(strings.ToLower(path), ".xsl") {
-			xslFiles = append(xslFiles, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to walk styles directory: %w", err)
-	}
-
-	for _, xslFile := range xslFiles {
-		baseName := filepath.Base(xslFile)
-		styleName := strings.TrimSuffix(baseName, filepath.Ext(baseName))
-		styleOutputPath := filepath.Join(filepath.Dir(xmlOutputPath), styleName)
-		if err := transformXMLDirectory(xmlOutputPath, styleOutputPath, xslFile, styleName); err != nil {
-			return fmt.Errorf("failed to transform with stylesheet %s: %w", xslFile, err)
+func applyStylesheets(xmlOutputPath string, styles []StyleOutput) error {
+	for _, style := range styles {
+		outputPath := filepath.Join(filepath.Dir(xmlOutputPath), style.Output)
+		if err := transformXMLDirectory(xmlOutputPath, outputPath, style.Stylesheet, style.Output); err != nil {
+			return fmt.Errorf("failed to transform with stylesheet %s: %w", style.Stylesheet, err)
 		}
 	}
 

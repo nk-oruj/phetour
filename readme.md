@@ -2,6 +2,9 @@
 
 A minimal static-site generator written in Go. It reads plain-text post files written in a lightweight custom syntax, compiles them into an intermediate XML document tree, and transforms that tree into any number of output formats (HTML, Gemtext, or anything else) using XSLT stylesheets.
 
+> [!WARNING]
+> phetour has been heavily programmed with AI assistance. this is a warning in case you consider to not use AI generated programs. if you consider using it anyways, then review its code and generated output carefully before relying on it for an important or public sites, and expect to maintain it as your needs change.
+
 ---
 
 ## How it works
@@ -12,7 +15,7 @@ input/   →   Parse   →   Render   →   XSL Transform   →   output/
 
 1. **Parse** — each post file is read and parsed into a `<document>` XML element with `<meta>` (title + tags) and `<body>` (content blocks).
 2. **Render** — a separate `<document>` XML file is written for each post, each tag index, and the home catalog.
-3. **Transform** — every `.xsl` stylesheet in `input/styles/` is applied to every XML file in `output/xml/`, producing a parallel output directory named after the stylesheet (e.g. `html.xsl` → `output/html/`).
+3. **Transform** — the stylesheet mappings in `config.xml` are applied to every XML file in `output/xml/`, each producing its configured output subfolder.
 4. **Lock** — post and tag identities are stored in `lock.xml` so that URLs remain stable across rebuilds even when filenames change.
 
 ---
@@ -24,7 +27,7 @@ input/   →   Parse   →   Render   →   XSL Transform   →   output/
 ├── input/
 │   ├── posts/          # post source files (see syntax below)
 │   ├── statics/        # files copied verbatim into every output directory
-│   └── styles/         # XSLT stylesheets, one per output format
+│   └── styles/         # XSLT stylesheets for page and RSS output
 ├── output/             # generated — do not edit by hand
 │   ├── xml/            # intermediate XML (one folder per document)
 │   └── .../            # produced by given XSLT stylesheets
@@ -48,6 +51,8 @@ input/   →   Parse   →   Render   →   XSL Transform   →   output/
 ---
 
 ## Build
+
+Before the first build, copy `~config.xml` to `config.xml` and configure the stylesheet mappings described in [Deployment](#deployment).
 
 ```sh
 # generate the site
@@ -83,13 +88,18 @@ cp ~config.xml config.xml
         <output name="gmi" remote="/var/gmi"/>
     </deployment>
 
+    <styles>
+        <stylesheet output="html" path="input/styles/html.xsl"/>
+        <stylesheet output="gmi" path="input/styles/gmi.xsl"/>
+    </styles>
+
     <rss entry-limit="5" member-limit="10">
-        <publish output="html" path="rss.xml" stylesheet="input/rss/default.xsl"/>
+        <publish output="html" path="rss.xml" stylesheet="input/styles/rss.xsl"/>
     </rss>
 </config>
 ```
 
-`config.xml` is ignored by Git; `~config.xml` remains the shareable template. Phetour uses `rsync` over your SSH alias: it previews the exact upload and deletion plan, asks for confirmation, then makes the configured remote directory match the corresponding local output folder.
+`config.xml` is ignored by Git; `~config.xml` remains the shareable template. Each `<stylesheet>` maps an XSLT file (`path`) to an output name (`output`), used for both the output subfolder and file extension: `html` creates `output/html/.../*.html`. The RSS stylesheet is stored alongside page styles but is selected only by its `<publish>` element. Phetour uses `rsync` over your SSH alias: it previews the exact upload and deletion plan, asks for confirmation, then makes the configured remote directory match the corresponding local output folder.
 
 ```sh
 # upload only files whose contents differ, and delete stale remote files
@@ -121,7 +131,7 @@ If a post or catalog is changed and then restored before `publish`, it produces 
 
 #### RSS item stylesheets
 
-The provided [`input/rss/default.xsl`](input/rss/default.xsl) is a starting point. Phetour gives it one grouped update document:
+The provided [`input/styles/rss.xsl`](input/styles/rss.xsl) is a starting point. Phetour gives it one grouped update document:
 
 ```xml
 <library-update guid="..." published-at="2026-07-31T12:00:00Z" site-url="https://example.com">
@@ -156,7 +166,7 @@ Phetour controls the RSS item link, GUID, and publication date. The title, descr
 
 ## Writing posts
 
-Post files live in `input/posts/`. The filename is the post's permanent identity key — the title displayed to readers comes from the file content, not the filename.
+Post files live anywhere under `input/posts/`; subfolders are searched recursively and have no technical effect. The filename is the post's permanent identity key — the title displayed to readers comes from the file content, not the filename. Therefore filenames must be unique across all post subfolders.
 
 ### Filenames
 
@@ -250,10 +260,11 @@ This produces:
 ## Adding a stylesheet
 
 1. Create `input/styles/myformat.xsl` — an XSLT 1.0 stylesheet that transforms `/document`.
-2. Run `make build`.
-3. Find the output in `output/myformat/`.
+2. Add a `<stylesheet output="myformat" path="input/styles/myformat.xsl"/>` entry under `<styles>` in `config.xml`.
+3. Run `make build`.
+4. Find the output in `output/myformat/`.
 
-The approach is to write one stylesheet per target format.
+The approach is to write one stylesheet per target format and map it explicitly to its output directory in `config.xml`.
 
 The XML document every stylesheet receives for the [example post above](#example):
 
@@ -284,7 +295,7 @@ A good book makes an afternoon feel like a week.</text>
 
 ## Available stylesheets
 
-The repository ships two stylesheets in `input/styles/` that show how the XML schema maps to real output formats. They are meant as working references — use them as-is, strip them down, or write your own from scratch alongside them.
+The repository ships HTML, Gemtext, and RSS stylesheets in `input/styles/`. They are meant as working references — use them as-is, strip them down, or write your own from scratch alongside them.
 
 ### `html.xsl` → `output/html/`
 

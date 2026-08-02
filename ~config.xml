@@ -8,8 +8,13 @@
         <output name="html" remote="/var/html"/>
         <output name="gmi" remote="/var/gmi"/>
     </deployment>
+
+    <styles>
+        <stylesheet output="html" path="input/styles/html.xsl"/>
+        <stylesheet output="gmi" path="input/styles/gmi.xsl"/>
+    </styles>
     
     <rss entry-limit="5" member-limit="10">
-        <publish output="html" path="rss.xml" stylesheet="input/rss/default.xsl"/>
+        <publish output="html" path="rss.xml" stylesheet="input/styles/rss.xsl"/>
     </rss>
 </config>

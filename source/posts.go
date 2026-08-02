@@ -28,14 +28,19 @@ type Source struct {
 
 func LoadSource(keylock *Keylock, taxonomy *Taxonomy) (*Source, error) {
 	source := &Source{Posts: []Post{}}
+	postPaths := map[string]string{}
 
 	err := filepath.Walk(postsPath, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() || info.Name()[0] == '~' {
+		if info.IsDir() || strings.HasPrefix(info.Name(), "~") {
 			return nil
 		}
+		if existingPath, exists := postPaths[info.Name()]; exists {
+			return fmt.Errorf("post filename %q is used by both %s and %s", info.Name(), existingPath, path)
+		}
+		postPaths[info.Name()] = path
 
 		post, err := loadPost(path, info.Name(), keylock, taxonomy)
 		if err != nil {
