@@ -57,11 +57,15 @@ func buildPost(post Post, outputPath string, taxonomy *Taxonomy) error {
 	body := docRoot.CreateElement("body")
 	body.CreateElement("bold").CreateText(post.Title)
 
+	var tagLinks *etree.Element
 	for _, srcTag := range srcMeta.SelectElements("tag") {
 		tagLabel := srcTag.SelectAttrValue("label", "")
 		for _, t := range taxonomy.Tags {
 			if t.Label == tagLabel {
-				link := body.CreateElement("link")
+				if tagLinks == nil {
+					tagLinks = body.CreateElement("link-group")
+				}
+				link := tagLinks.CreateElement("link")
 				link.CreateAttr("href", "/"+KeyIDToHex(t.Key)+"/")
 				link.CreateText(KeyIDToHex(t.Key) + " - " + tagLabel)
 				break
@@ -73,7 +77,7 @@ func buildPost(post Post, outputPath string, taxonomy *Taxonomy) error {
 	for _, child := range srcBody.Child {
 		if elem, ok := child.(*etree.Element); ok {
 			switch elem.Tag {
-			case "bold", "text", "code", "item", "link":
+			case "bold", "text", "code", "item-group", "link-group":
 				newElem := body.CreateElement(elem.Tag)
 				for _, attr := range elem.Attr {
 					newElem.CreateAttr(attr.Key, attr.Value)
@@ -108,10 +112,14 @@ func buildTag(tag Tag, outputPath string, source *Source) error {
 
 	slices.SortFunc(tag.Mentions, func(a, b int) int { return -cmp.Compare(a, b) })
 
+	var postLinks *etree.Element
 	for _, mentionID := range tag.Mentions {
 		for _, post := range source.Posts {
 			if post.Key == mentionID {
-				link := body.CreateElement("link")
+				if postLinks == nil {
+					postLinks = body.CreateElement("link-group")
+				}
+				link := postLinks.CreateElement("link")
 				link.CreateAttr("href", "/"+KeyIDToHex(mentionID)+"/")
 				link.CreateText(fmt.Sprintf("%s - %s", KeyIDToHex(mentionID), post.Title))
 				break
@@ -136,8 +144,12 @@ func buildHomeCatalog(taxonomy *Taxonomy, outputPath string) error {
 
 	slices.SortFunc(taxonomy.Tags, func(a, b Tag) int { return cmp.Compare(a.Label, b.Label) })
 
+	var tagLinks *etree.Element
 	for _, tag := range taxonomy.Tags {
-		link := body.CreateElement("link")
+		if tagLinks == nil {
+			tagLinks = body.CreateElement("link-group")
+		}
+		link := tagLinks.CreateElement("link")
 		link.CreateAttr("href", "/"+KeyIDToHex(tag.Key)+"/")
 		link.CreateText(fmt.Sprintf("%s - %s", KeyIDToHex(tag.Key), tag.Label))
 	}

@@ -29,18 +29,12 @@ func parseDocument(content string, filePath string) (*etree.Document, error) {
 	}
 
 	i := contentStart
-	for i < len(lines) {
-		trimmed := strings.TrimSpace(lines[i])
-		if trimmed == "" {
-			i++
-			continue
-		}
-		if strings.HasPrefix(trimmed, ">") {
-			tags = append(tags, strings.TrimSpace(strings.TrimPrefix(trimmed, ">")))
-			i++
-		} else {
-			break
-		}
+	for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
+		i++
+	}
+	for i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), ">") {
+		tags = append(tags, strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lines[i]), ">")))
+		i++
 	}
 
 	doc := etree.NewDocument()
@@ -62,6 +56,18 @@ func parseDocument(content string, filePath string) (*etree.Document, error) {
 
 func parseContent(lines []string, body *etree.Element, filePath string) error {
 	i := 0
+	var currentGroup *etree.Element
+	addElement := func(element *etree.Element) {
+		body.AddChild(element)
+		currentGroup = nil
+	}
+	addGroupElement := func(groupTag string, element *etree.Element) {
+		if currentGroup == nil || currentGroup.Tag != groupTag {
+			currentGroup = body.CreateElement(groupTag)
+		}
+		currentGroup.AddChild(element)
+	}
+
 	for i < len(lines) {
 		trimmed := strings.TrimSpace(lines[i])
 
@@ -72,29 +78,34 @@ func parseContent(lines []string, body *etree.Element, filePath string) error {
 				return err
 			}
 			if codeBlock != nil {
-				body.AddChild(codeBlock)
+				addElement(codeBlock)
 			}
 			i = nextIdx
 
 		case strings.HasPrefix(trimmed, "# "):
-			body.CreateElement("bold").CreateText(strings.TrimPrefix(trimmed, "# "))
+			element := etree.NewElement("bold")
+			element.CreateText(strings.TrimPrefix(trimmed, "# "))
+			addElement(element)
 			i++
 
 		case strings.HasPrefix(trimmed, "- "):
-			body.CreateElement("item").CreateText(strings.TrimPrefix(trimmed, "- "))
+			element := etree.NewElement("item")
+			element.CreateText(strings.TrimPrefix(trimmed, "- "))
+			addGroupElement("item-group", element)
 			i++
 
 		case strings.HasPrefix(trimmed, "> "):
 			linkContent := strings.TrimPrefix(trimmed, "> ")
 			parts := strings.Fields(linkContent)
 			if len(parts) >= 1 {
-				link := body.CreateElement("link")
+				link := etree.NewElement("link")
 				link.CreateAttr("href", parts[0])
 				if len(parts) > 1 {
 					link.CreateText(strings.Join(parts[1:], " "))
 				} else {
 					link.CreateText(parts[0])
 				}
+				addGroupElement("link-group", link)
 			}
 			i++
 
@@ -113,9 +124,12 @@ func parseContent(lines []string, body *etree.Element, filePath string) error {
 				textLines = append(textLines, next)
 				i++
 			}
-			body.CreateElement("text").CreateText(strings.Join(textLines, "\n"))
+			element := etree.NewElement("text")
+			element.CreateText(strings.Join(textLines, "\n"))
+			addElement(element)
 
 		default:
+			currentGroup = nil
 			i++
 		}
 	}

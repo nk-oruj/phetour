@@ -194,34 +194,32 @@ A post file has two sections separated implicitly by the parser: a **header** at
 ```
 
 - The **first line starting with `#`** (anywhere in the file, leading blank lines are ignored) is the title. Everything after the `#` and its trailing space is taken as the title string.
-- Every **line starting with `>`** immediately following the title (blank lines between them are ignored) is treated as a single tag. The entire string after `>` becomes the tag label.
-- The header ends as soon as any other non-empty, non-`>` line is encountered. From that point on, everything is content.
+- The contiguous **`>` block** following the title is the tag list. Leading blank lines before that block are ignored, but the first blank line after a tag ends the header. The entire string after `>` becomes the tag label.
+- The header also ends when any non-`>` line is encountered. From that point on, everything is content.
 
 #### Content blocks
 
 | Syntax | Intermediate XML element | Notes |
 |---|---|---|
 | `# Section heading` | `<bold>` | rendered by the stylesheet |
-| `- List item` | `<item>` | consecutive items form one list |
-| `> url label` | `<link href="url">` | first word is the href, rest is label |
+| `- List item` | `<item-group><item>` | consecutive items share one group; a blank line starts another group |
+| `> url label` | `<link-group><link href="url">` | first word is the href, rest is label; a blank line starts another group |
 | Plain paragraph text | `<text>` | consecutive lines form one block |
 | ` ``` … ``` ` | `<code>` | processed by pandoc if available |
 
-Consecutive plain-text lines are collected into a single `<text>` block. A blank line or any special prefix line breaks the collection.
+Consecutive plain-text lines are collected into a single `<text>` block. Consecutive links and items are stored in `<link-group>` and `<item-group>` elements. A blank line starts a new group; headings, text, and code also end the current group. Generated tag links form their own group, separate from the post body.
 
-> **Note on the `>` sigil:** In the header it means *tag*. In the content body it means *link*, but only when followed by a space (`> url label`). The parser switches modes after the first non-`>` content line, so the two uses are always unambiguous.
+> **Note on the `>` sigil:** In the header it means *tag*. In the content body it means *link*, but only when followed by a space (`> url label`). End the tag block with a blank line before the first body link; that line is then parsed as a link instead of a tag.
 
 #### Tables (via pandoc)
 
 Markdown-style tables inside a ` ``` ` block are processed by `pandoc`:
 
-````
-```
-|   | _1_ | _2_ |
-|---|:---:|:---:|
-| A | foo | bar |
-```
-````
+    ```
+    |   | _1_ | _2_ |
+    |---|:---:|:---:|
+    | A | foo | bar |
+    ```
 
 If `pandoc` is not installed the raw content is preserved as a plain `<code>` block.
 
@@ -277,16 +275,22 @@ The XML document every stylesheet receives for the [example post above](#example
     </meta>
     <body>
         <bold>On Reading</bold>
-        <link href="/0x0002/">0x0002 - essays</link>
-        <link href="/0x0003/">0x0003 - books</link>
+        <link-group>
+            <link href="/0x0002/">0x0002 - essays</link>
+            <link href="/0x0003/">0x0003 - books</link>
+        </link-group>
         <text>Reading is one of the few activities that slows time down.
 A good book makes an afternoon feel like a week.</text>
-        <item>it builds vocabulary without deliberate effort</item>
-        <item>it trains sustained attention</item>
-        <item>it exposes you to ways of thinking you would not reach alone</item>
+        <item-group>
+            <item>it builds vocabulary without deliberate effort</item>
+            <item>it trains sustained attention</item>
+            <item>it exposes you to ways of thinking you would not reach alone</item>
+        </item-group>
         <bold>Where to start</bold>
         <text>Start anywhere. Curiosity is a better guide than a syllabus.</text>
-        <link href="/0x0002/">post on essays</link>
+        <link-group>
+            <link href="/0x0002/">post on essays</link>
+        </link-group>
     </body>
 </document>
 ```
@@ -303,10 +307,10 @@ Produces HTML. Element mapping:
 
 | XML element | HTML output |
 |---|---|
-| `<bold>` | `<strong><p>` |
+| `<bold>` | `<p><strong>` |
 | `<text>` | `<p>` |
-| `<link href="…">` | `<a href="…">` |
-| `<item>` | `<li>` inside a `<ul>`, consecutive items grouped into one list |
+| `<link-group>` | `<a href="…">` lines inside a `<p>` |
+| `<item-group>` | `<li>` inside a `<ul>` |
 | `<code>` (plain) | `<pre><code>` |
 | `<code>` containing `<table>` | `<table>` with `<tr>` / `<td>` and optional inline `style` attributes |
 

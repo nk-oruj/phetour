@@ -34,7 +34,7 @@
       <xsl:otherwise>
         <xsl:text>&#10;</xsl:text> <!-- ensure single line before code -->
         <xsl:text>```&#10;</xsl:text>
-        <xsl:value-of select="normalize-space(.)"/>
+        <xsl:value-of select="."/>
         <xsl:text>&#10;```&#10;</xsl:text>
       </xsl:otherwise>
     </xsl:choose>
@@ -153,43 +153,25 @@
     </xsl:if>
   </xsl:template>
   
-  <!-- LIST -->
-  <xsl:template match="item[not(preceding-sibling::*[1][self::item])]">
+  <!-- ITEM GROUP -->
+  <xsl:template match="item-group">
     <xsl:text>&#10;</xsl:text> <!-- single blank line before list -->
-    <xsl:apply-templates
-      select=". | following-sibling::*[
-          self::item
-          and
-          generate-id(preceding-sibling::*[not(self::item)][1]) 
-          = generate-id(current()/preceding-sibling::*[not(self::item)][1])
-        ]"
-      mode="item-group"/>
+    <xsl:apply-templates select="item"/>
   </xsl:template>
   
-  <xsl:template match="item"/>
-  
-  <xsl:template match="item" mode="item-group">
+  <xsl:template match="item">
     <xsl:text>* </xsl:text>
     <xsl:value-of select="."/>
     <xsl:text>&#10;</xsl:text>
   </xsl:template>
   
-  <!-- LINK -->
-  <xsl:template match="link[not(preceding-sibling::*[1][self::link])]">
+  <!-- LINK GROUP -->
+  <xsl:template match="link-group">
     <xsl:text>&#10;</xsl:text> <!-- blank line before link group -->
-    <xsl:apply-templates
-      select=". | following-sibling::*[
-          self::link
-          and
-          generate-id(preceding-sibling::*[not(self::link)][1]) 
-          = generate-id(current()/preceding-sibling::*[not(self::link)][1])
-        ]"
-      mode="link-group"/>
+    <xsl:apply-templates select="link"/>
   </xsl:template>
   
-  <xsl:template match="link"/>
-  
-  <xsl:template match="link" mode="link-group">
+  <xsl:template match="link">
     <xsl:text>=&gt; </xsl:text>
     <xsl:value-of select="@href"/>
     <xsl:text> </xsl:text>
