@@ -7,6 +7,22 @@ A minimal static-site generator written in Go. It reads plain-text post files wr
 
 ---
 
+## Contents
+
+- [How it works](#how-it-works)
+- [Project structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Build](#build)
+- [Deployment](#deployment)
+- [RSS publication](#rss-publication)
+- [Writing posts](#writing-posts)
+- [Adding a stylesheet](#adding-a-stylesheet)
+- [Available stylesheets](#available-stylesheets)
+- [Identity and lock file](#identity-and-lock-file)
+- [Static files](#static-files)
+
+---
+
 ## How it works
 
 ```
@@ -43,8 +59,8 @@ input/   →   Parse   →   Render   →   XSL Transform   →   output/
 | Tool | Purpose |
 |---|---|
 | [Go](https://go.dev/) 1.23+ | build the generator |
-| [xsltproc](http://xmlsoft.org/XSLT/) | apply stylesheets (Linux/macOS) |
-| [msxsl.exe](https://www.microsoft.com/en-us/download/details.aspx?id=21714) | apply stylesheets (Windows) |
+| [xsltproc](http://xmlsoft.org/XSLT/) | apply page stylesheets on Linux/macOS; required for RSS publishing on every platform |
+| [msxsl.exe](https://www.microsoft.com/en-us/download/details.aspx?id=21714) | fallback for page stylesheets on Windows; it cannot publish RSS |
 | [rsync](https://rsync.samba.org/) | synchronize deployed output folders |
 | [pandoc](https://pandoc.org/) | render Markdown tables inside ` ``` ` blocks (optional) |
 
@@ -52,7 +68,7 @@ input/   →   Parse   →   Render   →   XSL Transform   →   output/
 
 ## Build
 
-Before the first build, copy `~config.xml` to `config.xml` and configure the stylesheet mappings described in [Deployment](#deployment).
+Before the first build, copy `~config.xml` to `config.xml` and complete the configuration described in [Deployment](#deployment). Every command loads the full file, so it needs valid stylesheet mappings, deployment outputs, and an SSH alias even when you only intend to build locally.
 
 ```sh
 # generate the site
@@ -93,13 +109,14 @@ cp ~config.xml config.xml
         <stylesheet output="gmi" path="input/styles/gmi.xsl"/>
     </styles>
 
-    <rss entry-limit="5" member-limit="10">
-        <publish output="html" path="rss.xml" stylesheet="input/styles/rss.xsl"/>
+    <rss entry-limit="5">
+        <publish output="html" path="rss.xml" stylesheet="input/styles/rss.html.xsl"/>
+        <publish output="gmi" path="rss.xml" stylesheet="input/styles/rss.gmi.xsl"/>
     </rss>
 </config>
 ```
 
-`config.xml` is ignored by Git; `~config.xml` remains the shareable template. Each `<stylesheet>` maps an XSLT file (`path`) to an output name (`output`), used for both the output subfolder and file extension: `html` creates `output/html/.../*.html`. The RSS stylesheet is stored alongside page styles but is selected only by its `<publish>` element. Phetour uses `rsync` over your SSH alias: it previews the exact upload and deletion plan, asks for confirmation, then makes the configured remote directory match the corresponding local output folder.
+`config.xml` is ignored by Git; `~config.xml` remains the shareable template. Its RSS section enables two separate feed files: an HTML-description feed in `output/html/rss.xml` and a Gemtext-description feed in `output/gmi/rss.xml`. They contain the same publication history in different description formats; remove one `<publish>` element if you want only one feed. Each `<stylesheet>` maps an XSLT file (`path`) to an output name (`output`), used for both the output subfolder and file extension: `html` creates `output/html/.../*.html`. Phetour uses `rsync` over your SSH alias: it previews the exact upload and deletion plan, asks for confirmation, then makes the configured remote directory match the corresponding local output folder.
 
 ```sh
 # upload only files whose contents differ, and delete stale remote files
@@ -111,56 +128,76 @@ go run ./source deploy-all
 
 Use `--force` to skip the confirmation prompt in scripts. `deploy-changes` uses checksums and does not synchronize timestamps or permissions, so it does not re-upload a file merely because a full local build gave it a new timestamp or WSL reports different file modes. Rsync creates new files as the remote SSH user using the server's normal umask, leaves existing ownership and modes untouched, and excludes symlinks, devices, and special files.
 
-### RSS publication
+## RSS publication
 
-RSS is optional: omit the `<rss>` element to disable it. A `<publish>` element selects the output folder where the feed is written (`output`), its relative path (`path`), and the XSLT stylesheet which formats its items (`stylesheet`). `entry-limit` controls how many previously published library updates remain in each feed. `member-limit` controls how many tag links a post, or post links a catalog, shows within one update; the default stylesheet adds an ellipsis when more links exist.
+RSS is optional: omit the `<rss>` element to disable it. Each `<publish>` element configures one RSS file. It selects the output folder where the feed is written (`output`), its relative path (`path`), and the XSLT stylesheet which formats its items (`stylesheet`). All configured feed files are rendered during the same `publish` operation from one shared publication history and share the same `entry-limit`; they are not independently curated. Each tag entry contains its complete current catalog body.
+
+For an HTML-styled description, use `output="html"` with `input/styles/rss.html.xsl`. For a Gemtext-styled description, use `output="gmi"` with `input/styles/rss.gmi.xsl` instead. Both files are RSS XML; the choice controls only the item description body. Do not configure both when you want one feed file.
+
+#### First publication workflow
+
+1. Copy and complete `config.xml`, including at least one output and RSS `<publish>` entry.
+2. Run `go run ./source build` to generate the site.
+3. Run `go run ./source deploy-changes`. The first successful deployment writes `state.xml` but intentionally creates no RSS entries.
+4. After a later post edit, build and deploy again.
+5. Run `go run ./source publish` and select the changed posts ready to announce. Their affected tag catalogs are added automatically when safe to publish.
 
 ```sh
 # deploy pages and record their semantic library state
 go run ./source deploy-changes
 
-# publish one grouped update for every net change since the last publication
+# select changed posts to publish as individual RSS entries
 go run ./source publish
 ```
 
-Page deployment deliberately excludes the configured RSS files, so an ordinary build cannot delete an existing feed. After all page outputs deploy successfully, Phetour saves their semantic post and catalog snapshot in the local, Git-ignored `state.xml`. `publish` compares that deployed snapshot to the last published snapshot and creates one RSS item with `Created`, `Revised`, and `Deleted` sections. Created and revised pages contain their complete current relations; the default stylesheet displays them up to `member-limit`. It uploads only the RSS files and updates `state.xml` after every feed upload succeeds.
+Page deployment deliberately excludes the configured RSS files, so an ordinary build cannot delete an existing feed. After all page outputs deploy successfully, Phetour saves their semantic post and catalog snapshot in the local, Git-ignored `state.xml`.
 
-`deploy-all` is a resynchronization command: it uploads every page file and records the deployed library state, just as `deploy-changes` does. If that state has never been published, a subsequent `publish` can create one initial RSS item for the whole library.
+When `state.xml` does not exist, the first successful deployment creates it with the current post and tag snapshots marked as already published. It creates no RSS entries, so change tracking starts with the next deployed change. Running `publish` before the first deployment performs the same initialization from `output/xml` and also creates no RSS entries. The file is internal Phetour state: it stores deployed and published snapshots, publication history, and the next private publication number used to make opaque GUID hashes.
 
-If a post or catalog is changed and then restored before `publish`, it produces no update. Several deployments before publishing are bundled into one item using their final deployed state. The RSS item GUID identifies that semantic change-set, while its `pubDate` is the time of publication.
+`publish` lists changed posts with their `Created` or `Revised` status and their affected tag catalogs. Select the post numbers that are ready to announce. Each selected post becomes one RSS item containing its full current content. Tag catalogs affected only by selected posts are published automatically as their own `Created` or `Revised` entries, containing their full current catalog body. A tag with an outstanding change from an unselected post is held back, preventing an automatic catalog entry from revealing unselected work. Use `publish --force` for noninteractive use; it selects every changed post.
+
+Only the selected posts and their automatic tag entries advance the published baseline after every RSS file uploads successfully. Other changes remain pending. Each entry receives a new persistent GUID and its `pubDate` is the time of publication.
+
+Missing posts and tags never produce an entry. Phetour retains their last published content as a baseline: if the same identity reappears unchanged it remains silent, and if it reappears changed it becomes a `Revised` candidate. Phetour compares canonical intermediate documents and tag relations, so stylesheet changes for HTML or Gemtext never create RSS entries. Old grouped `<library-update>` history is not migrated; it is ignored when the current state format is next saved.
+
+`deploy-all` is a resynchronization command: it uploads every page file and records the deployed library state, just as `deploy-changes` does.
 
 #### RSS item stylesheets
 
-The provided [`input/styles/rss.xsl`](input/styles/rss.xsl) is a starting point. Phetour gives it one grouped update document:
+The provided [`input/styles/rss.html.xsl`](input/styles/rss.html.xsl) is a starting point for HTML descriptions. Phetour gives it one publication document per entry:
 
 ```xml
-<library-update guid="..." published-at="2026-07-31T12:00:00Z" site-url="https://example.com">
-    <created>
-        <post id="0x0012" title="New post">
-            <member id="0x0005" title="Essays"/>
-        </post>
-        <tag id="0x0005" title="Essays">
-            <member id="0x0012" title="New post"/>
-        </tag>
-    </created>
-    <revised><post id="0x0004" title="Existing post"/></revised>
-    <deleted><post id="0x0003" title="Removed post"/></deleted>
-</library-update>
+<publication guid="f2b2..." published-at="2026-08-04T12:00:00Z" site-url="https://example.com">
+    <post id="0x0012" title="New post" status="Created">
+        <member id="0x0005" title="Essays"/>
+        <body>
+            <text>The complete current post content.</text>
+        </body>
+    </post>
+</publication>
 ```
 
-The stylesheet must produce an `<rss-content>` element with `<title>` and `<description>` children. Description children may be HTML/XML markup, which Phetour stores safely as the RSS description.
+The stylesheet must produce an `<rss-content>` element with `<title>` and `<description>` children. Phetour stores description child markup safely in the RSS description. The default HTML stylesheet renders only the current page body and omits its generated first title heading.
 
 ```xml
 <rss-content>
-    <title>Library update</title>
+    <title>Created: New post</title>
     <description>
-        <p><strong>Created</strong></p>
-        <ul><li><a href="https://example.com/0x0012/">[0x0012] - New post</a></li></ul>
+        <p>The complete current post content.</p>
     </description>
 </rss-content>
 ```
 
-Phetour controls the RSS item link, GUID, and publication date. The title, description, and presentation of changed posts and catalogs remain customizable in XSLT.
+Phetour controls the RSS item link, GUID, and publication date. The GUID is an opaque SHA-256 hash for each publication. `rss.html.xsl` imports `html.xsl` and `rss.gmi.xsl` imports `gmi.xsl`; both render only the current page body, omitting its generated first title heading. Each stylesheet has visible `Created` and `Revised` cases in its `post|tag` template in `mode="title"`; edit their text to customize titles. The title, description, and presentation of posts and catalogs remain customizable in XSLT.
+
+```xml
+<xsl:template match="post|tag" mode="title">
+    <xsl:choose>
+        <xsl:when test="@status = 'Created'">Created: <xsl:value-of select="@title"/></xsl:when>
+        <xsl:when test="@status = 'Revised'">Revised: <xsl:value-of select="@title"/></xsl:when>
+    </xsl:choose>
+</xsl:template>
+```
 
 ---
 

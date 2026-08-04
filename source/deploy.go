@@ -56,11 +56,20 @@ func runDeploy(forceAll bool, force bool) error {
 		if err != nil {
 			return err
 		}
+		stateExists, err := stateFileExists()
+		if err != nil {
+			return err
+		}
 		state, err := loadState()
 		if err != nil {
 			return err
 		}
-		state.Deployed = snapshot
+		if stateExists {
+			state.Deployed = snapshot
+		} else {
+			state = initialLibraryState(snapshot)
+			fmt.Println("RSS: initialized state from the current deployment.")
+		}
 		if err := state.Save(); err != nil {
 			return err
 		}

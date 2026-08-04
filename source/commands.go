@@ -47,7 +47,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stdout, "  build-all         Alias for build.")
 	fmt.Fprintln(os.Stdout, "  deploy-changes    Synchronize changed output files with configured remotes.")
 	fmt.Fprintln(os.Stdout, "  deploy-all        Force every output file to upload to configured remotes.")
-	fmt.Fprintln(os.Stdout, "  publish           Publish one grouped library update to RSS.")
+	fmt.Fprintln(os.Stdout, "  publish           Select changed posts and publish RSS entries.")
 	fmt.Fprintln(os.Stdout, "")
 	fmt.Fprintln(os.Stdout, "Each command displays its plan and asks for confirmation. Use --force to skip the prompt.")
 }

@@ -14,12 +14,11 @@ import (
 const configFilePath = "./config.xml"
 
 type Config struct {
-	Deployment     DeploymentConfig
-	Styles         []StyleOutput
-	Site           SiteConfig
-	RSSEntryLimit  int
-	RSSMemberLimit int
-	RSS            []RSSPublication
+	Deployment    DeploymentConfig
+	Styles        []StyleOutput
+	Site          SiteConfig
+	RSSEntryLimit int
+	RSS           []RSSPublication
 }
 
 type DeploymentOutput struct {
@@ -101,12 +100,6 @@ func loadConfig() (Config, error) {
 		return Config{}, fmt.Errorf("rss entry-limit must be a positive integer")
 	}
 	config.RSSEntryLimit = entryLimit
-	memberLimit, err := strconv.Atoi(rss.SelectAttrValue("member-limit", ""))
-	if err != nil || memberLimit < 1 {
-		return Config{}, fmt.Errorf("rss member-limit must be a positive integer")
-	}
-	config.RSSMemberLimit = memberLimit
-
 	outputs := outputNames(config.Deployment)
 	publicationPaths := map[string]bool{}
 	for _, publication := range rss.SelectElements("publish") {

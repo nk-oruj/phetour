@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -21,8 +20,8 @@ type RSSItem struct {
 	Description string
 }
 
-func renderLibraryUpdate(stylesheet string, site SiteConfig, update *etree.Element, memberLimit int) (RSSItem, error) {
-	input := etree.NewDocumentWithRoot(update.Copy())
+func renderPublication(stylesheet string, site SiteConfig, publication *etree.Element) (RSSItem, error) {
+	input := etree.NewDocumentWithRoot(publication.Copy())
 	input.Root().CreateAttr("site-url", strings.TrimRight(site.URL, "/"))
 	temporaryFile, err := os.CreateTemp("", "phetour-rss-*.xml")
 	if err != nil {
@@ -37,7 +36,7 @@ func renderLibraryUpdate(stylesheet string, site SiteConfig, update *etree.Eleme
 	if err := temporaryFile.Close(); err != nil {
 		return RSSItem{}, fmt.Errorf("failed to close RSS stylesheet input: %w", err)
 	}
-	content, err := transformRSSWithXsltproc(stylesheet, temporaryPath, memberLimit)
+	content, err := transformRSSWithXsltproc(stylesheet, temporaryPath)
 	if err != nil {
 		return RSSItem{}, err
 	}
@@ -54,24 +53,31 @@ func renderLibraryUpdate(stylesheet string, site SiteConfig, update *etree.Eleme
 	if title == nil || strings.TrimSpace(title.Text()) == "" || description == nil {
 		return RSSItem{}, fmt.Errorf("RSS stylesheet %s must produce title and description elements", stylesheet)
 	}
-	publishedAt, err := time.Parse(time.RFC3339, update.SelectAttrValue("published-at", ""))
+	publishedAt, err := time.Parse(time.RFC3339Nano, publication.SelectAttrValue("published-at", ""))
 	if err != nil {
-		return RSSItem{}, fmt.Errorf("library update has an invalid publication date: %w", err)
+		return RSSItem{}, fmt.Errorf("RSS publication has an invalid publication date: %w", err)
+	}
+	link := site.URL
+	if page := publication.SelectElement("post"); page != nil {
+		link = strings.TrimRight(site.URL, "/") + "/" + page.SelectAttrValue("id", "") + "/"
+	}
+	if page := publication.SelectElement("tag"); page != nil {
+		link = strings.TrimRight(site.URL, "/") + "/" + page.SelectAttrValue("id", "") + "/"
 	}
 	return RSSItem{
 		Title:       strings.TrimSpace(title.Text()),
-		Link:        site.URL,
-		GUID:        update.SelectAttrValue("guid", ""),
+		Link:        link,
+		GUID:        publication.SelectAttrValue("guid", ""),
 		PublishedAt: publishedAt,
 		Description: rssDescriptionMarkup(description),
 	}, nil
 }
 
-func transformRSSWithXsltproc(stylesheet string, inputPath string, memberLimit int) ([]byte, error) {
+func transformRSSWithXsltproc(stylesheet string, inputPath string) ([]byte, error) {
 	if _, err := os.Stat(stylesheet); err != nil {
 		return nil, fmt.Errorf("failed to access RSS stylesheet %s: %w", stylesheet, err)
 	}
-	output, err := exec.Command("xsltproc", "--stringparam", "member-limit", strconv.Itoa(memberLimit), stylesheet, inputPath).CombinedOutput()
+	output, err := exec.Command("xsltproc", stylesheet, inputPath).CombinedOutput()
 	if err == nil {
 		return output, nil
 	}
@@ -106,6 +112,9 @@ func writeRSSFeed(publication RSSPublication, site SiteConfig, items []RSSItem) 
 	channel.CreateElement("title").CreateText(site.Title)
 	channel.CreateElement("link").CreateText(site.URL)
 	channel.CreateElement("description").CreateText(site.Description)
+	if len(items) > 0 {
+		channel.CreateElement("lastBuildDate").CreateText(items[0].PublishedAt.UTC().Format(time.RFC1123Z))
+	}
 	for _, item := range items {
 		element := channel.CreateElement("item")
 		element.CreateElement("title").CreateText(item.Title)
